@@ -61,6 +61,7 @@ async def main(task: str):
 
         print("Agent execution completed!")
         print("Result:", result)
+        return result
     finally:
         await browser.close()  # Ensure browser is closed even if there's an error
 
