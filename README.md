@@ -23,11 +23,7 @@ make run
 To build and run the project in Docker:
 
 ```bash
-# Build the Docker image
-make docker-build
-
-# Run the Docker container
-make docker-run
+docker buildx build --platform linux/amd64 -t vefaas-enterprise-ap-southeast-1.cr.volces.com/zhengxi/browser-use:0.3 --push --provenance=false .   
 ```
 
 Or manually:

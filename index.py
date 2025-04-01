@@ -108,7 +108,17 @@ async def root():
 @app.post("/run")
 async def run(request: TaskRequest):
     result = await main(request.task)
-    return result
+    # Find the last completed result item with is_done=True
+    for history_item in reversed(result.history):
+        for result_item in history_item.result:
+            if hasattr(result_item, "is_done") and result_item.is_done == True:
+                return result_item.extracted_content
+    
+    # If no completed result found, return all extracted_content
+    return [
+        [item.extracted_content for item in history_item.result if hasattr(item, "extracted_content")]
+        for history_item in result.history
+    ]
 
 if __name__ == "__main__":
     import uvicorn
