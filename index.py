@@ -62,10 +62,11 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             save_recording_path=recording_dir,
             save_downloads_path=os.path.join(base_dir, "download"),
             trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
+            highlight_elements=False
         )
 
         context = BrowserContext(
-            browser=browser, 
+            browser=browser,
             config=config
         )
 
@@ -81,7 +82,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
                         "actions": [a.dict() for a in model_output.action] if hasattr(model_output, "action") else []
                     }
-                    
+
                     # Create and send conversation update without yielding
                     conv_message = await format_sse(
                         {
@@ -99,29 +100,29 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                 #     sse_message = await format_sse(
                 #         {
                 #             "task_id": task_id,
-                #             "status": "live_screenshot", 
+                #             "status": "live_screenshot",
                 #             "metadata": {
                 #                 "type": "browser_live_screenshot_base64",
                 #                 "data": state.screenshot,
                 #             }
                 #         }
                 #     )
-                    
+
                 #     # Use asyncio.create_task to send the message without waiting
                 #     asyncio.create_task(send_sse_message(sse_message))
-                    
-                    
+
+
                 #     filename = f"snapshot_{step_number:03d}.png"
                 #     filepath = os.path.join(snapshot_dir, filename)
                 #     with open(filepath, "wb") as f:
                 #         f.write(base64.b64decode(state.screenshot))
-                                                    
+
                 return True
-            
+
             async def send_sse_message(message):
                 nonlocal sse_queue
                 await sse_queue.put(message)
-            
+
             sse_queue = asyncio.Queue()
 
             async def snapshot_polling(browser_ctx, interval=1.0):  # interval in seconds
@@ -134,7 +135,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                             sse_message = await format_sse(
                                 {
                                     "task_id": task_id,
-                                    "status": "polling_snapshot", 
+                                    "status": "polling_snapshot",
                                     "metadata": {
                                         "type": "browser_live_screenshot_base64",
                                         "data": screenshot,
@@ -147,16 +148,16 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                             filepath = os.path.join(snapshot_dir, filename)
                             with open(filepath, "wb") as f:
                                 f.write(base64.b64decode(screenshot))
-                                
+
                         except Exception as e:
                             pass
-                        
+
                         await asyncio.sleep(interval)
                 except asyncio.CancelledError:
                     pass
-                
-            polling_task = asyncio.create_task(snapshot_polling(context))            
-            
+
+            polling_task = asyncio.create_task(snapshot_polling(context))
+
             agent = Agent(
                 task=task,
                 llm=ChatOpenAI(model="gpt-4o"),
@@ -170,13 +171,13 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
 
             # Start the agent in a separate task
             agent_task = asyncio.create_task(agent.run())
-            
+
             while not agent_task.done() or not sse_queue.empty():
                 if not sse_queue.empty():
                     yield await sse_queue.get()
                 else:
                     await asyncio.sleep(0.1)
-            
+
             result = await agent_task
 
             final_result = None
