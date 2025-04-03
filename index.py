@@ -1,6 +1,6 @@
 import uuid
 from langchain_openai import ChatOpenAI
-from browser_use import Agent, BrowserContextConfig
+from browser_use import Agent, BrowserContextConfig, SystemPrompt
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 from browser_use.agent.views import AgentHistoryList, AgentHistory
@@ -16,8 +16,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 from typing import AsyncGenerator
+import uvicorn
 
 app = FastAPI()
+
+llm_openai = "openai"
+llm_deepseek = "deepseek"
+llm_ark = "ark"
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -28,19 +33,22 @@ load_dotenv()
 
 async def format_sse(data: dict) -> str:
     """Format data as SSE message"""
-    message = f"data: {json.dumps(data)}\n\n"
+    message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
 
 async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
     """Run the task and yield SSE events"""
+    browser = None
+    context = None
     try:
+        logging.debug(f"Starting task: {task}, task_id: {task_id}")
         # Send initial status
         yield await format_sse({"task_id": task_id, "status": "started"})
 
         base_dir = "videos"
         base_dir = os.path.join(base_dir, task_id)
 
-        snapshot_dir =os.path.join(base_dir, "snapshots")
+        snapshot_dir = os.path.join(base_dir, "snapshots")
         Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
 
         gif_dir = os.path.join(base_dir, "gif")
@@ -52,26 +60,40 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         trace_dir = os.path.join(base_dir, "trace")
         Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
-        browser = Browser(
-            config=BrowserConfig(
-                headless=True
-            )
-        )
-
-        config = BrowserContextConfig(
-            save_recording_path=recording_dir,
-            save_downloads_path=os.path.join(base_dir, "download"),
-            trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
-            highlight_elements=False
-        )
-
-        context = BrowserContext(
-            browser=browser,
-            config=config
-        )
-
         try:
+        #     browser = Browser(
+        #     config=BrowserConfig(
+        #         headless=True,
+        #         extra_browser_args=[
+        #             '--no-sandbox',
+        #             '--disable-dev-shm-usage',
+        #             '--disable-gpu',
+        #             '--disable-software-rasterizer'
+        #         ]
+        #     )
+        # )
+            
+            browser = Browser(
+                config=BrowserConfig(
+                    headless=True,
+                    disable_security=True,
+                    # deterministic_rendering=True
+                )
+            )
+
             yield await format_sse({"task_id": task_id, "status": "browser_initialized"})
+
+            config = BrowserContextConfig(
+                save_recording_path=recording_dir,
+                save_downloads_path=os.path.join(base_dir, "download"),
+                trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
+                highlight_elements=False,
+            )
+
+            context = BrowserContext(
+                browser=browser,
+                config=config
+            )
 
             async def new_step_callback(state, model_output, step_number):
                 if model_output:
@@ -158,15 +180,127 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
 
             polling_task = asyncio.create_task(snapshot_polling(context))
 
-            agent = Agent(
-                task=task,
-                llm=ChatOpenAI(model="gpt-4o"),
-                browser_context=context,
-                save_conversation_path=os.path.join(base_dir, "conversation"),
-                generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                register_new_step_callback=new_step_callback,
-            )
+            use_vision = True
+            
 
+
+            logging.info(f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
+
+            try:
+                # if llm_name != llm_openai:
+                #     os.environ["OPENAI_API_KEY"] = "sk-dummy"
+
+                
+
+                if llm_name == llm_openai:
+                #     agent = Agent(
+                #         task=task,
+                #         llm=ChatOpenAI(model="gpt-4o"),
+                #         use_vision=True,
+                #         browser_context=context,
+                #         save_conversation_path=os.path.join(base_dir, "conversation"),
+                #         generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                #         register_new_step_callback=new_step_callback,
+                #     )
+                # # elif llm_name == llm_deepseek:
+                # #     llm = ChatDeepSeek(model="deepseek-chat", api_key=os.getenv("DEEPSEEK_API_KEY"))
+                # #     use_vision = False
+                    class BaiduSystemPrompt(SystemPrompt):
+                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
+                        1. NEVER use Google or any other search engine
+                        2. ALWAYS start by navigating to https://www.bing.com
+                        3. Use Baidu's search box for all searches
+                        4. This is a strict requirement - you must use Baidu.com"""
+
+                    # Modify task to enforce Baidu usage
+                    baidu_task = f"Remember to use ONLY bing.com for searching. Task: {task}"
+
+                    agent = Agent(
+                        task=baidu_task,
+                        llm=ChatOpenAI(model="gpt-4o"),
+                        use_vision=True,
+                        browser_context=context,
+                        save_conversation_path=os.path.join(base_dir, "conversation"),
+                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        register_new_step_callback=new_step_callback,
+                        system_prompt_class=BaiduSystemPrompt
+                    )
+                elif llm_name == llm_deepseek:
+                    class BaiduSystemPrompt(SystemPrompt):
+                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
+                        1. NEVER use Google or any other search engine
+                        2. ALWAYS start by navigating to https://www.baidu.com
+                        3. Use Baidu's search box for all searches
+                        4. This is a strict requirement - you must use Baidu.com"""
+
+                    # Modify task to enforce Baidu usage
+                    os.environ["OPENAI_API_KEY"] = "sk-dummy"
+                    baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
+
+                    agent = Agent(
+                        task=baidu_task,
+                        llm=ChatOpenAI(
+                            base_url="https://api.deepseek.com/v1",
+                            model="deepseek-chat",
+                            api_key=os.getenv("DEEPSEEK_API_KEY")
+                        ),
+                        use_vision=False,
+                        browser_context=context,
+                        save_conversation_path=os.path.join(base_dir, "conversation"),
+                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        register_new_step_callback=new_step_callback,
+                        system_prompt_class=BaiduSystemPrompt
+                    )
+                elif llm_name == llm_ark:  
+                    os.environ["OPENAI_API_KEY"] = "sk-dummy"
+                    class BaiduSystemPrompt(SystemPrompt):
+                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
+                        1. NEVER use Google or any other search engine
+                        2. ALWAYS start by navigating to https://www.baidu.com
+                        3. Use Baidu's search box for all searches
+                        4. This is a strict requirement - you must use Baidu.com"""
+
+                    # Modify task to enforce Baidu usage
+                    baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
+
+                    agent = Agent(
+                        task=baidu_task,
+                        llm=ChatOpenAI(
+                            base_url="https://ark.cn-beijing.volces.com/api/v3",
+                            model=os.getenv("ARK_MODEL_ID"),
+                            api_key=os.getenv("ARK_API_KEY"),
+                            default_headers={"X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                        ),
+                        use_vision=False,
+                        browser_context=context,
+                        save_conversation_path=os.path.join(base_dir, "conversation"),
+                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        register_new_step_callback=new_step_callback,
+                        system_prompt_class=BaiduSystemPrompt
+                    )
+                else:
+                    raise ValueError(f"Unknown LLM type: {llm_name}")
+
+                # agent = Agent(
+                #     task=baidu_task,
+                #     llm=llm,
+                #     use_vision=use_vision,
+                #     browser_context=context,
+                #     save_conversation_path=os.path.join(base_dir, "conversation"),
+                #     generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                #     register_new_step_callback=new_step_callback,
+                #     system_prompt_class=BaiduSystemPrompt
+                # )
+            except Exception as e:
+                logging.error(f"Failed to create agent: {str(e)}")
+                yield await format_sse({
+                    "task_id": task_id,
+                    "status": "error",
+                    "error": f"Agent creation failed: {str(e)}"
+                })
+                return
+
+            
             yield await format_sse({"task_id": task_id, "status": "agent_initialized"})
 
             # Start the agent in a separate task
@@ -226,13 +360,12 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             })
 
         except Exception as e:
-            # Send error status
+            logging.error(f"Agent execution failed: {str(e)}")
             yield await format_sse({
                 "task_id": task_id,
                 "status": "error",
-                "error": str(e)
+                "error": f"Agent execution failed: {str(e)}"
             })
-            raise
         finally:
             polling_task.cancel()
             try:
@@ -240,10 +373,16 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             except asyncio.CancelledError:
                 pass
 
-            await browser.close()
+            try:
+                if context:
+                    await context.close()
+                if browser:
+                    await browser.close()
+            except Exception as e:
+                logging.error(f"Failed to close browser/context: {str(e)}")
 
     except Exception as e:
-        # Send error status for any outer exceptions
+        logging.error(f"Task execution failed: {str(e)}")
         yield await format_sse({
             "task_id": task_id,
             "status": "error",
@@ -270,17 +409,37 @@ async def root():
 async def run(request: Messages):
     task_id = str(uuid.uuid4())
 
-    task = ""
+    prompt = ""
     for message in request.messages:
         if message.role == "user":
-            task = message.content
+            prompt = message.content
+            logging.debug(f"Found user message: {prompt}")
             break
 
+    logging.debug(f"Final prompt value: {prompt}")
     return StreamingResponse(
-        run_task(task, task_id),
+        run_task(prompt, task_id),
         media_type="text/event-stream"
     )
 
+
+def check_llm_config() -> bool:
+    global llm_name
+    llm_name = ""
+
+    if os.getenv("OPENAI_API_KEY"):
+        llm_name = llm_openai
+    elif os.getenv("DEEPSEEK_API_KEY"):
+        llm_name = llm_deepseek
+    elif os.getenv("ARK_API_KEY"):
+        if os.getenv("ARK_MODEL_ID") == "":
+            raise Exception("ARK_MODEL_ID is not set, please set ARK_MODEL_ID in environment variables")
+        llm_name = llm_ark
+    else:
+        raise Exception("No LLM API key found, please set OPENAI_API_KEY, DEEPSEEK_API_KEY or ARK_API_KEY/ARK_MODEL_ID in environment variables")
+
+    print("using llm: ", llm_name)
+    
 if __name__ == "__main__":
-    import uvicorn
+    check_llm_config()
     uvicorn.run(app, host="0.0.0.0", port=8000)
