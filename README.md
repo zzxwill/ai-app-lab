@@ -11,12 +11,10 @@ The project uses a Makefile to manage dependencies and operations, eliminating t
 To set up the project for local development:
 
 ```bash
-# Install all dependencies
-make install
-
-# Run the application
-make run
+pip install --upgrade git+https://github.com/browser-use/browser-use.git@main
 ```
+
+Why? <https://github.com/browser-use/browser-use/issues/1066>
 
 ### Docker Setup
 
