@@ -187,43 +187,15 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             logging.info(f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
 
             try:
-                # if llm_name != llm_openai:
-                #     os.environ["OPENAI_API_KEY"] = "sk-dummy"
-
-                
-
                 if llm_name == llm_openai:
-                #     agent = Agent(
-                #         task=task,
-                #         llm=ChatOpenAI(model="gpt-4o"),
-                #         use_vision=True,
-                #         browser_context=context,
-                #         save_conversation_path=os.path.join(base_dir, "conversation"),
-                #         generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                #         register_new_step_callback=new_step_callback,
-                #     )
-                # # elif llm_name == llm_deepseek:
-                # #     llm = ChatDeepSeek(model="deepseek-chat", api_key=os.getenv("DEEPSEEK_API_KEY"))
-                # #     use_vision = False
-                    class BaiduSystemPrompt(SystemPrompt):
-                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
-                        1. NEVER use Google or any other search engine
-                        2. ALWAYS start by navigating to https://www.bing.com
-                        3. Use Baidu's search box for all searches
-                        4. This is a strict requirement - you must use Baidu.com"""
-
-                    # Modify task to enforce Baidu usage
-                    baidu_task = f"Remember to use ONLY bing.com for searching. Task: {task}"
-
                     agent = Agent(
-                        task=baidu_task,
+                        task=task,
                         llm=ChatOpenAI(model="gpt-4o"),
                         use_vision=True,
                         browser_context=context,
                         save_conversation_path=os.path.join(base_dir, "conversation"),
                         generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
-                        system_prompt_class=BaiduSystemPrompt
                     )
                 elif llm_name == llm_deepseek:
                     class BaiduSystemPrompt(SystemPrompt):
@@ -233,7 +205,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         3. Use Baidu's search box for all searches
                         4. This is a strict requirement - you must use Baidu.com"""
 
-                    # Modify task to enforce Baidu usage
+                    # It's a workaround as ChatOpenAI will check the api key
                     os.environ["OPENAI_API_KEY"] = "sk-dummy"
                     baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
 
@@ -252,6 +224,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         system_prompt_class=BaiduSystemPrompt
                     )
                 elif llm_name == llm_ark:  
+                    # It's a workaround as ChatOpenAI will check the api key
                     os.environ["OPENAI_API_KEY"] = "sk-dummy"
                     class BaiduSystemPrompt(SystemPrompt):
                         action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
@@ -260,7 +233,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         3. Use Baidu's search box for all searches
                         4. This is a strict requirement - you must use Baidu.com"""
 
-                    # Modify task to enforce Baidu usage
                     baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
 
                     agent = Agent(
@@ -281,16 +253,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                 else:
                     raise ValueError(f"Unknown LLM type: {llm_name}")
 
-                # agent = Agent(
-                #     task=baidu_task,
-                #     llm=llm,
-                #     use_vision=use_vision,
-                #     browser_context=context,
-                #     save_conversation_path=os.path.join(base_dir, "conversation"),
-                #     generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                #     register_new_step_callback=new_step_callback,
-                #     system_prompt_class=BaiduSystemPrompt
-                # )
             except Exception as e:
                 logging.error(f"Failed to create agent: {str(e)}")
                 yield await format_sse({
