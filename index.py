@@ -27,14 +27,16 @@ llm_ark = "ark"
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-logging.getLogger('browser_use').setLevel(logging.DEBUG)
+# logging.getLogger('browser_use').setLevel(logging.DEBUG)
 
 load_dotenv()
+
 
 async def format_sse(data: dict) -> str:
     """Format data as SSE message"""
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
+
 
 async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
     """Run the task and yield SSE events"""
@@ -96,6 +98,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             )
 
             async def new_step_callback(state, model_output, step_number):
+                print(f"kuoxin@: new callback? {step_number}")
                 if model_output:
                     conversation_update = {
                         "step": step_number,
@@ -195,7 +198,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     )
                 elif llm_name == llm_deepseek:
                     class BaiduSystemPrompt(SystemPrompt):
-                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
+                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches.
                         1. NEVER use Google or any other search engine
                         2. ALWAYS start by navigating to https://www.baidu.com
                         3. Use Baidu's search box for all searches
@@ -219,32 +222,48 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         register_new_step_callback=new_step_callback,
                         system_prompt_class=BaiduSystemPrompt
                     )
-                elif llm_name == llm_ark:  
+                elif llm_name == llm_ark:
                     # It's a workaround as ChatOpenAI will check the api key
                     os.environ["OPENAI_API_KEY"] = "sk-dummy"
+
                     class BaiduSystemPrompt(SystemPrompt):
-                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches. 
+                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches.
                         1. NEVER use Google or any other search engine
                         2. ALWAYS start by navigating to https://www.baidu.com
                         3. Use Baidu's search box for all searches
                         4. This is a strict requirement - you must use Baidu.com"""
 
-                    baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
+
+
 
                     agent = Agent(
-                        task=baidu_task,
+                        task=task,
+                        initial_actions=[
+                            {"go_to_url": {"url": "https://baidu.com"}}],
                         llm=ChatOpenAI(
                             base_url="https://ark.cn-beijing.volces.com/api/v3",
                             model=os.getenv("ARK_MODEL_ID"),
                             api_key=os.getenv("ARK_API_KEY"),
-                            default_headers={"X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                            default_headers={
+                                "X-Client-Request-Id": "vefaas-browser-use-20250403"}
                         ),
-                        use_vision=False,
+                        page_extraction_llm=ChatOpenAI(
+                            base_url="https://ark.cn-beijing.volces.com/api/v3",
+                            model=os.getenv("ARK_EXTRACT_MODEL_ID"),
+                            api_key=os.getenv("ARK_API_KEY"),
+                            default_headers={
+                                "X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                        ),
+                        use_vision=os.getenv(
+                            "ARK_USE_VISION", "False").lower() == "true",
+                        tool_calling_method=os.getenv(
+                            "ARK_FUNCTION_CALLING", "raw").lower(),
                         browser_context=context,
                         # save_conversation_path=os.path.join(base_dir, "conversation"),
                         # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
-                        system_prompt_class=BaiduSystemPrompt
+                        # register_done_callback=step_done_callback,
+                        # system_prompt_class=BaiduSystemPrompt
                     )
                 else:
                     raise ValueError(f"Unknown LLM type: {llm_name}")
@@ -258,11 +277,10 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                 })
                 return
 
-            
             yield await format_sse({"task_id": task_id, "status": "agent_initialized"})
 
             # Start the agent in a separate task
-            agent_task = asyncio.create_task(agent.run())
+            agent_task = asyncio.create_task(agent.run(10))
 
             while not agent_task.done() or not sse_queue.empty():
                 if not sse_queue.empty():
@@ -283,7 +301,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
 
             if not final_result:
                 final_result = [
-                    [item.extracted_content for item in history_item.result if hasattr(item, "extracted_content")]
+                    [item.extracted_content for item in history_item.result if hasattr(
+                        item, "extracted_content")]
                     for history_item in result.history
                 ]
 
@@ -310,8 +329,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                 "status": "completed",
                 "choices": [{
                     "delta": {
-                        "role": "assistant", # 固定值 assistant
-                        "content": final_result #不一定是完整的内容，只有 sse 请求执行完成后才会完成 内容输出
+                        "role": "assistant",  # 固定值 assistant
+                        "content": final_result  # 不一定是完整的内容，只有 sse 请求执行完成后才会完成 内容输出
                     },
                 }],
                 "result": final_result
@@ -348,20 +367,23 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         })
 
 
-
 class Message(BaseModel):
     role: str
     content: str
 
+
 class Messages(BaseModel):
     messages: list[Message]
+
 
 class TaskRequest(BaseModel):
     task: str
 
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
 
 @app.post("/run")
 async def run(request: Messages):
