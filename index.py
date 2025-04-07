@@ -51,14 +51,14 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         snapshot_dir = os.path.join(base_dir, "snapshots")
         Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
 
-        gif_dir = os.path.join(base_dir, "gif")
-        Path(gif_dir).mkdir(parents=True, exist_ok=True)
+        # gif_dir = os.path.join(base_dir, "gif")
+        # Path(gif_dir).mkdir(parents=True, exist_ok=True)
 
-        recording_dir = os.path.join(base_dir, "recording")
-        Path(recording_dir).mkdir(parents=True, exist_ok=True)
+        # recording_dir = os.path.join(base_dir, "recording")
+        # Path(recording_dir).mkdir(parents=True, exist_ok=True)
 
-        trace_dir = os.path.join(base_dir, "trace")
-        Path(trace_dir).mkdir(parents=True, exist_ok=True)
+        # trace_dir = os.path.join(base_dir, "trace")
+        # Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
         try:
         #     browser = Browser(
@@ -84,9 +84,9 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             yield await format_sse({"task_id": task_id, "status": "browser_initialized"})
 
             config = BrowserContextConfig(
-                save_recording_path=recording_dir,
-                save_downloads_path=os.path.join(base_dir, "download"),
-                trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
+                # save_recording_path=recording_dir,
+                # save_downloads_path=os.path.join(base_dir, "download"),
+                # trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
                 highlight_elements=False,
             )
 
@@ -180,10 +180,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
 
             polling_task = asyncio.create_task(snapshot_polling(context))
 
-            use_vision = True
-            
-
-
             logging.info(f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
 
             try:
@@ -193,8 +189,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         llm=ChatOpenAI(model="gpt-4o"),
                         use_vision=True,
                         browser_context=context,
-                        save_conversation_path=os.path.join(base_dir, "conversation"),
-                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        # save_conversation_path=os.path.join(base_dir, "conversation"),
+                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
                     )
                 elif llm_name == llm_deepseek:
@@ -218,8 +214,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         ),
                         use_vision=False,
                         browser_context=context,
-                        save_conversation_path=os.path.join(base_dir, "conversation"),
-                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        # save_conversation_path=os.path.join(base_dir, "conversation"),
+                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
                         system_prompt_class=BaiduSystemPrompt
                     )
@@ -245,8 +241,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         ),
                         use_vision=False,
                         browser_context=context,
-                        save_conversation_path=os.path.join(base_dir, "conversation"),
-                        generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                        # save_conversation_path=os.path.join(base_dir, "conversation"),
+                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
                         system_prompt_class=BaiduSystemPrompt
                     )
@@ -291,23 +287,23 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     for history_item in result.history
                 ]
 
-            yield await format_sse({
-                "task_id": task_id,
-                "status": "completed",
-                "metadata": {
-                    "type": "screentshot_gif_path",
-                    "data": gif_dir
-                }
-            })
+            # yield await format_sse({
+            #     "task_id": task_id,
+            #     "status": "completed",
+            #     "metadata": {
+            #         "type": "screentshot_gif_path",
+            #         "data": gif_dir
+            #     }
+            # })
 
-            yield await format_sse({
-                "task_id": task_id,
-                "status": "completed",
-                "metadata": {
-                    "type": "recording_path",
-                    "data": recording_dir
-                }
-            })
+            # yield await format_sse({
+            #     "task_id": task_id,
+            #     "status": "completed",
+            #     "metadata": {
+            #         "type": "recording_path",
+            #         "data": recording_dir
+            #     }
+            # })
 
             yield await format_sse({
                 "task_id": task_id,
