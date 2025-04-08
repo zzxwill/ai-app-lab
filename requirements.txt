@@ -15,4 +15,5 @@ pydantic==2.10.6
 langchain_anthropic==0.3.3
 MainContentExtractor==0.0.4
 typing-extensions==4.12.2
-Pillow
+markdownify==0.14.1
+posthog==3.23.0

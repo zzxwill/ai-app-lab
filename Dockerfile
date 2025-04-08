@@ -8,9 +8,7 @@ RUN pip install -r requirements.txt
 
 RUN apt-get update && apt-get install -y fonts-dejavu
 
-# Create startup script
-# RUN echo '#!/bin/bash\nplaywright install\npython index.py' > start.sh && \
-#     chmod +x start.sh
+COPY browser_use /app/browser_use
 
 COPY index.py .
 CMD ["python", "index.py"]
