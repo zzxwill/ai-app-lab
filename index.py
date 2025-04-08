@@ -18,7 +18,7 @@ import json
 from typing import AsyncGenerator
 import uvicorn
 from playwright.async_api import async_playwright
-from cdp import websocket_endpoint, get_websocket_targets, get_websocket_version, get_inspector
+from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
 from urllib.parse import urlparse
 
 app = FastAPI()
@@ -405,6 +405,10 @@ async def json_version():
 async def cdp_websocket(websocket: WebSocket, page_id: str):
     await websocket_endpoint(websocket, page_id)
 
+@app.websocket("/devtools/browser/{browser_id}")
+async def cdp_websocket_browser(websocket: WebSocket, browser_id: str):
+    await websocket_browser_endpoint(websocket, browser_id)
+
 @app.get("/devtools/inspector.html")
 async def inspector(request: Request):
     return await get_inspector(request.url)
@@ -464,6 +468,7 @@ async def start_browser():
                         args=[
                             '--remote-debugging-port=9222',
                             '--remote-allow-origins=*',
+                            '--disable-web-security',
                             '--remote-debugging-address=0.0.0.0',
                             '--no-sandbox'
                         ]
