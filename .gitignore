@@ -1,3 +1,7 @@
 videos/
 .DS_Store
 .idea/
+bin/
+include/
+lib/
+pyvenv.cfg
