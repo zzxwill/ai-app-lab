@@ -210,7 +210,7 @@ class Controller(Generic[Context]):
                 input_variables=['goal', 'page'], template=prompt)
 
             try:
-                output = page_extraction_llm.invoke(
+                output = await page_extraction_llm.ainvoke(
                     template.format(goal=goal, page=content))
                 msg = f'📄  Extracted from page\n: {output.content}\n'
                 logger.info(msg)

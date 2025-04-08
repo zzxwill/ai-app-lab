@@ -98,7 +98,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
             )
 
             async def new_step_callback(state, model_output, step_number):
-                print(f"kuoxin@: new callback? {step_number}")
                 if model_output:
                     conversation_update = {
                         "step": step_number,
