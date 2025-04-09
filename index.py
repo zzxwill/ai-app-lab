@@ -54,7 +54,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
     browser = None
     context = None
     try:
-        # Send initial status
+        # Send initial status and update task
+        active_tasks[task_id].update({
+            'status': 'starting',
+            'started_at': datetime.now().isoformat()
+        })
         yield await format_sse({"task_id": task_id, "status": "started"})
 
         base_dir = "videos"
@@ -90,6 +94,10 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             )
 
             yield await format_sse({"task_id": task_id, "status": "browser_initialized"})
+            active_tasks[task_id].update({
+                'status': 'browser_initialized',
+                'last_update': datetime.now().isoformat()
+            })
 
             config = BrowserContextConfig(
                 # save_recording_path=recording_dir,
@@ -112,6 +120,12 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
                         "actions": [a.dict() for a in model_output.action] if hasattr(model_output, "action") else []
                     }
+
+                    # Update active_tasks with current step and goal
+                    active_tasks[task_id].update({
+                        'status': 'running',
+
+                    })
 
                     # Create and send conversation update without yielding
                     conv_message = await format_sse(
@@ -278,9 +292,18 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     "status": "error",
                     "error": f"Agent creation failed: {str(e)}"
                 })
+                active_tasks[task_id].update({
+                    'status': 'failed',
+                    'error': f"Agent creation failed: {str(e)}",
+                    'failed_at': datetime.now().isoformat()
+                })
                 return
 
             yield await format_sse({"task_id": task_id, "status": "agent_initialized"})
+            active_tasks[task_id].update({
+                'status': 'agent_initialized',
+                'last_update': datetime.now().isoformat()
+            })
 
             # Start the agent in a separate task
             agent_task = asyncio.create_task(agent.run(10))
@@ -338,6 +361,12 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 }],
                 "result": final_result
             })
+            
+            active_tasks[task_id].update({
+                'status': 'completed',
+                'completed_at': datetime.now().isoformat(),
+                'result': final_result
+            })
 
         except Exception as e:
             logging.error(f"Agent execution failed: {str(e)}")
@@ -345,6 +374,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 "task_id": task_id,
                 "status": "error",
                 "error": f"Agent execution failed: {str(e)}"
+            })
+            active_tasks[task_id].update({
+                'status': 'failed',
+                'error': f"Agent execution failed: {str(e)}",
+                'failed_at': datetime.now().isoformat()
             })
         finally:
             polling_task.cancel()
@@ -420,11 +454,13 @@ async def run(request: Messages):
         'port': current_port
     })
 
-    # store a map in the memory as well and set active_tasks as a global variable
+    # Initialize task with status and metadata
     global active_tasks
     active_tasks[task_id] = {
         'prompt': prompt,
-        'port': current_port
+        'port': current_port,
+        'status': 'queued',
+        'created_at': datetime.now().isoformat(),
     }
 
     # Return task ID immediately
@@ -607,12 +643,11 @@ async def task_worker():
             current_port = task_info['port']
 
             try:
-                active_tasks[task_id] = {
+                # Update task status to running
+                active_tasks[task_id].update({
                     'status': 'running',
-                    'started_at': datetime.now(),
-                    'prompt': task_prompt,
-                    'port': current_port
-                }
+                    'started_at': datetime.now().isoformat()
+                })
 
                 task_results = []
                 async for result in run_task(task_prompt, task_id, current_port):
@@ -626,12 +661,20 @@ async def task_worker():
                     except json.JSONDecodeError:
                         pass
 
-                active_tasks[task_id]['status'] = 'completed'
+                # Update task status to completed
+                active_tasks[task_id].update({
+                    'status': 'completed',
+                    'completed_at': datetime.now().isoformat(),
+                })
 
             except Exception as e:
                 logging.error(f"Task {task_id} failed: {e}")
-                active_tasks[task_id]['status'] = 'failed'
-                active_tasks[task_id]['error'] = str(e)
+                # Update task status to failed
+                active_tasks[task_id].update({
+                    'status': 'failed',
+                    'error': str(e),
+                    'failed_at': datetime.now().isoformat()
+                })
 
             finally:
                 task_queue.task_done()
