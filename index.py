@@ -20,6 +20,7 @@ import uvicorn
 from playwright.async_api import async_playwright
 from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
 from urllib.parse import urlparse
+import aiohttp
 
 app = FastAPI()
 
@@ -34,18 +35,25 @@ logging.basicConfig(level=logging.INFO,
 
 load_dotenv()
 
+# Global variable to track the port
+CURRENT_CDP_PORT = 9222
+
+# Global task queue and task storage
+task_queue = asyncio.Queue()
+active_tasks = {}
+
 async def format_sse(data: dict) -> str:
     """Format data as SSE message"""
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
 
 
-async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
-    """Run the task and yield SSE events"""
+async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
+    logging.info(f"Starting task: {task}, task_id: {task_id}, with CDP port: {current_port}")
+    
     browser = None
     context = None
     try:
-        logging.debug(f"Starting task: {task}, task_id: {task_id}")
         # Send initial status
         yield await format_sse({"task_id": task_id, "status": "started"})
 
@@ -64,13 +72,20 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         # trace_dir = os.path.join(base_dir, "trace")
         # Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
+        # browser_task = asyncio.create_task(start_browser(current_port))
+        
+        # await browser_ready_event.wait()
+        
+        # # # Wait for browser task to complete (which should be never)
+        # await browser_task
+
         try:
             browser = Browser(
                 config=BrowserConfig(
                     headless=True,
                     disable_security=True,
                     # deterministic_rendering=True
-                    cdp_url="http://127.0.0.1:9222"
+                    cdp_url=f"http://127.0.0.1:{current_port}"
                 )
             )
 
@@ -224,8 +239,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                         4. This is a strict requirement - you must use Baidu.com"""
 
 
-
-
                     agent = Agent(
                         task=task,
                         initial_actions=[
@@ -347,6 +360,8 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     await browser.close()
             except Exception as e:
                 logging.error(f"Failed to close browser/context: {str(e)}")
+        
+        # await browser_task
 
     except Exception as e:
         logging.error(f"Task execution failed: {str(e)}")
@@ -374,8 +389,8 @@ class TaskRequest(BaseModel):
 async def root():
     return {"message": "Hello World"}
 
-
-@app.post("/run")
+# start a task, in which a browser will be started
+@app.post("/tasks")
 async def run(request: Messages):
     task_id = str(uuid.uuid4())
 
@@ -387,27 +402,104 @@ async def run(request: Messages):
             break
 
     logging.debug(f"Final prompt value: {prompt}")
-    return StreamingResponse(
-        run_task(prompt, task_id),
-        media_type="text/event-stream"
-    )
 
+    global CURRENT_CDP_PORT
+    
+    # Increment the port for each task
+    CURRENT_CDP_PORT += 1
+    current_port = CURRENT_CDP_PORT
+
+    browser_task = asyncio.create_task(start_browser(current_port))
+    
+    await browser_ready_event.wait()
+
+    # Add task to queue
+    await task_queue.put({
+        'task_id': task_id, 
+        'task': prompt, 
+        'port': current_port
+    })
+
+    # store a map in the memory as well and set active_tasks as a global variable
+    global active_tasks
+    active_tasks[task_id] = {
+        'prompt': prompt,
+        'port': current_port
+    }
+
+    # Return task ID immediately
+    return {
+        "task_id": task_id,
+        "status": "queued"
+    }
+
+@app.get("/tasks")
+async def list_tasks():
+    """Endpoint to list all active and recent tasks"""
+    return {
+        "active_tasks": active_tasks,
+        "queue_size": task_queue.qsize()
+    }
+
+@app.get("/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """Endpoint to get status of a specific task"""
+    task = active_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return task
+
+@app.get("/tasks/{task_id}/stream")
+async def stream_task_results(task_id: str):
+    """Stream results for a specific task"""
+    port = await get_task_port(task_id)
+    
+    async def result_generator():
+        task_info = active_tasks[task_id]
+        async for result in run_task(task_info['prompt'], task_id, port):
+            yield await format_sse({
+                "task_id": task_id,
+                "data": result
+            })
+    
+    return StreamingResponse(result_generator(), media_type="text/event-stream")
 
 @app.get("/devtools/json/list")
-async def json_list():
-    return await get_websocket_targets()
+async def json_list(task_id: str):
+    port = await get_task_port(task_id)
+    return await get_websocket_targets(port)
 
 @app.get("/devtools/json/version")
-async def json_version():
-    return await get_websocket_version()
+async def json_version(task_id: str):
+    logging.info(f"Received request for /devtools/json/version with task_id: {task_id}")
+    logging.info(f"active_tasks: {active_tasks}")
+    
+    port = await get_task_port(task_id)
+    return await get_websocket_version(port)
 
 @app.websocket("/devtools/page/{page_id}")
 async def cdp_websocket(websocket: WebSocket, page_id: str):
-    await websocket_endpoint(websocket, page_id)
+    query_params = dict(websocket.query_params)
+    task_id = query_params.get("task_id")
+    
+    port = await get_task_port(task_id, websocket)
+    if port is None:
+        return
+        
+    await websocket_endpoint(websocket, page_id, port)
 
 @app.websocket("/devtools/browser/{browser_id}")
 async def cdp_websocket_browser(websocket: WebSocket, browser_id: str):
-    await websocket_browser_endpoint(websocket, browser_id)
+    query_params = dict(websocket.query_params)
+    task_id = query_params.get("task_id")
+    logging.info(f"Received request for /devtools/browser/{browser_id}?task_id={task_id}")
+    
+    port = await get_task_port(task_id, websocket)
+    if port is None:
+        return
+        
+    await websocket_browser_endpoint(websocket, browser_id, port)
 
 @app.get("/devtools/inspector.html")
 async def inspector(request: Request):
@@ -433,83 +525,142 @@ def check_llm_config() -> bool:
 # Event to signal when the browser is ready
 browser_ready_event = asyncio.Event()
 
-async def start_browser():
-    p = await async_playwright().start()
+async def start_browser(port):
+    logging.info(f"Attempting to start browser on port {port}")
     
     try:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                '--remote-debugging-port=9222',  # This exposes the CDP service
-                '--remote-allow-origins=*',  # Allow any origin to connect
-                '--remote-debugging-address=0.0.0.0',  # Listen on all interfaces
-                '--no-sandbox'
-            ]
-        )
+        p = await async_playwright().start()
         
-        # Create a global event to signal browser is ready
-        browser_ready_event.set()
-        
-        # Keep the browser running indefinitely
-        while True:
-            try:
-                # Check browser health periodically
-                contexts = browser.contexts
-                if not contexts:
-                    logging.warning("No active browser contexts. Attempting to recover.")
-                    try:
-                        await browser.close()
-                    except:
-                        pass
-                    
-                    # Relaunch browser
-                    browser = await p.chromium.launch(
-                        headless=True,
-                        args=[
-                            '--remote-debugging-port=9222',
-                            '--remote-allow-origins=*',
-                            '--disable-web-security',
-                            '--remote-debugging-address=0.0.0.0',
-                            '--no-sandbox'
-                        ]
-                    )
-                
-                # Wait for a while before next check
-                await asyncio.sleep(60)  # Check every minute
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    f'--remote-debugging-port={port}',
+                    '--remote-allow-origins=*',
+                    '--remote-debugging-address=0.0.0.0', 
+                    '--no-sandbox'
+                ]
+            )
             
-            except Exception as e:
-                logging.error(f"Error in browser monitoring: {e}")
-                await asyncio.sleep(10)  # Wait before retry
+            logging.info(f"Browser launched successfully on port {port}")
+            
+            # Verify CDP is actually running
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(f"http://127.0.0.1:{port}/json/version", timeout=5) as response:
+                        if response.status == 200:
+                            version_info = await response.json()
+                            logging.info(f"CDP version info: {version_info}")
+                        else:
+                            logging.error(f"Failed to get CDP version. Status: {response.status}")
+            except Exception as cdp_e:
+                logging.error(f"Error checking CDP availability: {cdp_e}")
+            
+            # Create a global event to signal browser is ready
+            browser_ready_event.set()
+            
+            # Keep the browser running indefinitely
+            while True:
+                try:
+                    # Basic health check
+                    contexts = browser.contexts
+                    logging.debug(f"Active contexts: {len(contexts)}")
+                    
+                    # Periodic check of CDP availability
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"http://127.0.0.1:{port}/json/list", timeout=5) as response:
+                            if response.status != 200:
+                                logging.warning(f"CDP endpoint not responding on port {port}")
+                    
+                    await asyncio.sleep(60)
+                
+                except Exception as health_e:
+                    logging.error(f"Browser health check error: {health_e}")
+                    break
+        
+        except Exception as launch_e:
+            logging.error(f"Failed to launch browser: {launch_e}")
+            browser_ready_event.clear()
+            raise
     
-    except Exception as e:
-        logging.error(f"Failed to start browser: {e}")
+    except Exception as p_e:
+        logging.error(f"Playwright initialization error: {p_e}")
         browser_ready_event.clear()
         raise
     finally:
-        # Ensure playwright is closed properly
-        await p.stop()
+        # Ensure Playwright is stopped
+        try:
+            await p.stop()
+        except Exception as stop_e:
+            logging.error(f"Error stopping Playwright: {stop_e}")
 
-# Modify main startup to use this approach
-async def main():
-    # Start browser in the background
-    browser_task = asyncio.create_task(start_browser())
+async def task_worker():
+    while True:
+        try:
+            try:
+                task_info = await asyncio.wait_for(task_queue.get(), timeout=60)
+            except asyncio.TimeoutError:
+                continue
+
+            task_id = task_info['task_id']
+            task_prompt = task_info['task']
+            current_port = task_info['port']
+
+            try:
+                active_tasks[task_id] = {
+                    'status': 'running',
+                    'started_at': datetime.now(),
+                    'prompt': task_prompt,
+                    'port': current_port
+                }
+
+                task_results = []
+                async for result in run_task(task_prompt, task_id, current_port):
+                    task_results.append(result)
+                    
+                    try:
+                        if isinstance(result, str):
+                            result_data = json.loads(result)
+                            if isinstance(result_data, dict) and 'status' in result_data:
+                                active_tasks[task_id]['last_status'] = result_data['status']
+                    except json.JSONDecodeError:
+                        pass
+
+                active_tasks[task_id]['status'] = 'completed'
+
+            except Exception as e:
+                logging.error(f"Task {task_id} failed: {e}")
+                active_tasks[task_id]['status'] = 'failed'
+                active_tasks[task_id]['error'] = str(e)
+
+            finally:
+                task_queue.task_done()
+
+        except Exception as e:
+            logging.error(f"Task worker error: {e}")
+
+async def get_task_port(task_id: str, websocket: WebSocket = None) -> int:
+    if not task_id:
+        if websocket:
+            await websocket.close(code=4000, reason="task_id is required")
+            return None
+        raise HTTPException(status_code=400, detail="task_id is required")
+
+    if task_id not in active_tasks:
+        if websocket:
+            await websocket.close(code=4000, reason=f"Task ID {task_id} not found")
+            return None
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
     
-    # Wait for browser to be ready before starting other services
-    await browser_ready_event.wait()
+    port = active_tasks[task_id].get('port')
+    if not port:
+        if websocket:
+            await websocket.close(code=4000, reason=f"No port found for task ID {task_id}")
+            return None
+        raise HTTPException(status_code=500, detail=f"No port found for task {task_id}")
     
-    # Start FastAPI server
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000)
-    server = uvicorn.Server(config)
-    
-    # Run server
-    await server.serve()
-    
-    # Wait for browser task to complete (which should be never)
-    await browser_task
+    return port
 
 if __name__ == "__main__":
     check_llm_config()
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Shutting down...")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
