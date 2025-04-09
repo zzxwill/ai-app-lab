@@ -368,6 +368,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'result': final_result
             })
 
+            await browser.close()
+
         except Exception as e:
             logging.error(f"Agent execution failed: {str(e)}")
             yield await format_sse({
@@ -443,6 +445,14 @@ async def run(request: Messages):
     CURRENT_CDP_PORT += 1
     current_port = CURRENT_CDP_PORT
 
+    global active_tasks
+    active_tasks[task_id] = {
+        'prompt': prompt,
+        'port': current_port,
+        'status': 'queued',
+        'created_at': datetime.now().isoformat(),
+    }
+
     browser_task = asyncio.create_task(start_browser(current_port))
     
     await browser_ready_event.wait()
@@ -453,15 +463,6 @@ async def run(request: Messages):
         'task': prompt, 
         'port': current_port
     })
-
-    # Initialize task with status and metadata
-    global active_tasks
-    active_tasks[task_id] = {
-        'prompt': prompt,
-        'port': current_port,
-        'status': 'queued',
-        'created_at': datetime.now().isoformat(),
-    }
 
     # Return task ID immediately
     return {
@@ -564,6 +565,9 @@ browser_ready_event = asyncio.Event()
 async def start_browser(port):
     logging.info(f"Attempting to start browser on port {port}")
     
+    p = None
+    browser = None
+    
     try:
         p = await async_playwright().start()
         
@@ -595,8 +599,28 @@ async def start_browser(port):
             # Create a global event to signal browser is ready
             browser_ready_event.set()
             
-            # Keep the browser running indefinitely
+            task_id = None
+            for tid, task in active_tasks.items():
+                if task.get('port') == port:
+                    task_id = tid
+                    break
+                    
+            if task_id:
+                active_tasks[task_id]['browser_instance'] = browser
+                active_tasks[task_id]['playwright_instance'] = p
+            
+            # Keep the browser running until the task is done
             while True:
+                is_active = False
+                for tid, task in active_tasks.items():
+                    if task.get('port') == port and task.get('status') not in ['completed', 'failed']:
+                        is_active = True
+                        break
+                
+                if not is_active:
+                    logging.info(f"No active tasks for browser on port {port}, shutting down")
+                    break
+                
                 try:
                     # Basic health check
                     contexts = browser.contexts
@@ -608,7 +632,7 @@ async def start_browser(port):
                             if response.status != 200:
                                 logging.warning(f"CDP endpoint not responding on port {port}")
                     
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(5)
                 
                 except Exception as health_e:
                     logging.error(f"Browser health check error: {health_e}")
@@ -624,11 +648,16 @@ async def start_browser(port):
         browser_ready_event.clear()
         raise
     finally:
-        # Ensure Playwright is stopped
         try:
-            await p.stop()
+            if browser:
+                await browser.close()
+                logging.info(f"Browser on port {port} closed successfully")
+                
+            if p:
+                await p.stop()
+                logging.info(f"Playwright for browser on port {port} stopped successfully")
         except Exception as stop_e:
-            logging.error(f"Error stopping Playwright: {stop_e}")
+            logging.error(f"Error stopping browser/playwright: {stop_e}")
 
 async def task_worker():
     while True:
