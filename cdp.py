@@ -7,12 +7,12 @@ import aiohttp
 import json
 from urllib.parse import urlparse, urlunparse
 
-async def websocket_endpoint(websocket: WebSocket, page_id: str):
+async def websocket_endpoint(websocket: WebSocket, page_id: str, port: str):
     await websocket.accept()
     
     try:
         # Construct the WebSocket URL for the specific page
-        ws_url = f"ws://127.0.0.1:9222/devtools/page/{page_id}"
+        ws_url = f"ws://127.0.0.1:{port}/devtools/page/{page_id}"
         
         # Establish a connection to the CDP WebSocket
         async with websockets.connect(ws_url) as cdp_socket:
@@ -34,12 +34,12 @@ async def websocket_endpoint(websocket: WebSocket, page_id: str):
         logging.error(f"WebSocket error: {e}")
         await websocket.close()
 
-async def websocket_browser_endpoint(websocket: WebSocket, browser_id: str):
+async def websocket_browser_endpoint(websocket: WebSocket, browser_id: str, port: str):
     await websocket.accept()
     
     try:
         # Construct the WebSocket URL for the specific page
-        ws_url = f"ws://0.0.0.0:9222/devtools/browser/{browser_id}"
+        ws_url = f"ws://0.0.0.0:{port}/devtools/browser/{browser_id}"
         
         # Establish a connection to the CDP WebSocket
         async with websockets.connect(ws_url) as cdp_socket:
@@ -81,13 +81,13 @@ async def send_to_cdp(cdp_socket, websocket):
     except Exception as e:
         logging.error(f"Error sending to CDP: {e}")     
 
-async def get_websocket_targets():
+async def get_websocket_targets(port: str):
     endpoint = os.getenv("CDP_ENDPOINT")
     logging.info(f"Getting websocket targets for endpoint: {endpoint}")
     try:
         async with aiohttp.ClientSession() as session:
             # Use the cdp_websocket parameter to dynamically construct the URL
-            base_url = f"http://127.0.0.1:9222/json/list"
+            base_url = f"http://127.0.0.1:{port}/json/list"
             async with session.get(base_url) as response:
                 if response.status == 200:
                     result = await response.json()
@@ -101,13 +101,13 @@ async def get_websocket_targets():
                         # Replace devtoolsFrontendUrl
                         if 'devtoolsFrontendUrl' in target:
                             target['devtoolsFrontendUrl'] = target['devtoolsFrontendUrl'].replace(
-                                '127.0.0.1:9222', str(endpoint)
+                                '127.0.0.1:' + str(port), str(endpoint)
                             )
                         
                         # Replace webSocketDebuggerUrl
                         if 'webSocketDebuggerUrl' in target:
                             target['webSocketDebuggerUrl'] = target['webSocketDebuggerUrl'].replace(
-                                '127.0.0.1:9222', str(endpoint)
+                                '127.0.0.1:' + str(port), str(endpoint)
                             )
                                             
                     return result
@@ -116,13 +116,13 @@ async def get_websocket_targets():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching JSON list: {str(e)}")
     
-async def get_websocket_version():
+async def get_websocket_version(port: str):
     endpoint = os.getenv("CDP_ENDPOINT")
     logging.info(f"Getting websocket version for endpoint: {endpoint}")
     try:
         async with aiohttp.ClientSession() as session:
             # Use the cdp_websocket parameter to dynamically construct the URL
-            base_url = f"http://127.0.0.1:9222/json/version"
+            base_url = f"http://127.0.0.1:{port}/json/version"
             async with session.get(base_url) as response:
                 if response.status == 200:
                     result = await response.json()
@@ -132,7 +132,7 @@ async def get_websocket_version():
                                             
                     if 'webSocketDebuggerUrl' in result:
                         result['webSocketDebuggerUrl'] = result['webSocketDebuggerUrl'].replace(
-                            '127.0.0.1:9222', str(endpoint)
+                            '127.0.0.1:' + str(port), str(endpoint)
                         )
                                             
                     return result
