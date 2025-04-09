@@ -1,9 +1,9 @@
+from time import time
 import uuid
 from langchain_openai import ChatOpenAI
 from browser_use import Agent, BrowserContextConfig, SystemPrompt
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
-from browser_use.agent.views import AgentHistoryList, AgentHistory
 import asyncio
 import logging
 from dotenv import load_dotenv
@@ -11,12 +11,15 @@ from datetime import datetime
 import os
 from pathlib import Path
 import base64
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 from typing import AsyncGenerator
 import uvicorn
+from playwright.async_api import async_playwright
+from cdp import websocket_endpoint, get_websocket_targets, get_websocket_version, get_inspector
+from urllib.parse import urlparse
 
 app = FastAPI()
 
@@ -30,7 +33,6 @@ logging.basicConfig(level=logging.INFO,
 # logging.getLogger('browser_use').setLevel(logging.DEBUG)
 
 load_dotenv()
-
 
 async def format_sse(data: dict) -> str:
     """Format data as SSE message"""
@@ -63,23 +65,12 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         # Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
         try:
-        #     browser = Browser(
-        #     config=BrowserConfig(
-        #         headless=True,
-        #         extra_browser_args=[
-        #             '--no-sandbox',
-        #             '--disable-dev-shm-usage',
-        #             '--disable-gpu',
-        #             '--disable-software-rasterizer'
-        #         ]
-        #     )
-        # )
-            
             browser = Browser(
                 config=BrowserConfig(
                     headless=True,
                     disable_security=True,
                     # deterministic_rendering=True
+                    cdp_url="http://127.0.0.1:9222"
                 )
             )
 
@@ -402,6 +393,22 @@ async def run(request: Messages):
     )
 
 
+@app.get("/devtools/json/list")
+async def json_list():
+    return await get_websocket_targets()
+
+@app.get("/devtools/json/version")
+async def json_version():
+    return await get_websocket_version()
+
+@app.websocket("/devtools/page/{page_id}")
+async def cdp_websocket(websocket: WebSocket, page_id: str):
+    await websocket_endpoint(websocket, page_id)
+
+@app.get("/devtools/inspector.html")
+async def inspector(request: Request):
+    return await get_inspector(request.url)
+
 def check_llm_config() -> bool:
     global llm_name
     llm_name = ""
@@ -418,7 +425,86 @@ def check_llm_config() -> bool:
         raise Exception("No LLM API key found, please set OPENAI_API_KEY, DEEPSEEK_API_KEY or ARK_API_KEY/ARK_MODEL_ID in environment variables")
 
     print("using llm: ", llm_name)
+
+# Event to signal when the browser is ready
+browser_ready_event = asyncio.Event()
+
+async def start_browser():
+    p = await async_playwright().start()
     
+    try:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                '--remote-debugging-port=9222',  # This exposes the CDP service
+                '--remote-allow-origins=*',  # Allow any origin to connect
+                '--remote-debugging-address=0.0.0.0',  # Listen on all interfaces
+                '--no-sandbox'
+            ]
+        )
+        
+        # Create a global event to signal browser is ready
+        browser_ready_event.set()
+        
+        # Keep the browser running indefinitely
+        while True:
+            try:
+                # Check browser health periodically
+                contexts = browser.contexts
+                if not contexts:
+                    logging.warning("No active browser contexts. Attempting to recover.")
+                    try:
+                        await browser.close()
+                    except:
+                        pass
+                    
+                    # Relaunch browser
+                    browser = await p.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--remote-debugging-port=9222',
+                            '--remote-allow-origins=*',
+                            '--remote-debugging-address=0.0.0.0',
+                            '--no-sandbox'
+                        ]
+                    )
+                
+                # Wait for a while before next check
+                await asyncio.sleep(60)  # Check every minute
+            
+            except Exception as e:
+                logging.error(f"Error in browser monitoring: {e}")
+                await asyncio.sleep(10)  # Wait before retry
+    
+    except Exception as e:
+        logging.error(f"Failed to start browser: {e}")
+        browser_ready_event.clear()
+        raise
+    finally:
+        # Ensure playwright is closed properly
+        await p.stop()
+
+# Modify main startup to use this approach
+async def main():
+    # Start browser in the background
+    browser_task = asyncio.create_task(start_browser())
+    
+    # Wait for browser to be ready before starting other services
+    await browser_ready_event.wait()
+    
+    # Start FastAPI server
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000)
+    server = uvicorn.Server(config)
+    
+    # Run server
+    await server.serve()
+    
+    # Wait for browser task to complete (which should be never)
+    await browser_task
+
 if __name__ == "__main__":
     check_llm_config()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Shutting down...")
