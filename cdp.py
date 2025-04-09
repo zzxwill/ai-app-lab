@@ -34,6 +34,33 @@ async def websocket_endpoint(websocket: WebSocket, page_id: str):
         logging.error(f"WebSocket error: {e}")
         await websocket.close()
 
+async def websocket_browser_endpoint(websocket: WebSocket, browser_id: str):
+    await websocket.accept()
+    
+    try:
+        # Construct the WebSocket URL for the specific page
+        ws_url = f"ws://0.0.0.0:9222/devtools/browser/{browser_id}"
+        
+        # Establish a connection to the CDP WebSocket
+        async with websockets.connect(ws_url) as cdp_socket:
+            # Create tasks for bidirectional communication
+            receive_task = asyncio.create_task(receive_from_cdp(cdp_socket, websocket))
+            send_task = asyncio.create_task(send_to_cdp(cdp_socket, websocket))
+            
+            # Wait for either task to complete
+            done, pending = await asyncio.wait(
+                [receive_task, send_task], 
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # Cancel any remaining tasks
+            for task in pending:
+                task.cancel()
+    
+    except Exception as e:
+        logging.error(f"WebSocket error: {e}")
+        await websocket.close()
+
 async def receive_from_cdp(cdp_socket, websocket):
     try:
         while True:
