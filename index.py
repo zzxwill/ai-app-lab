@@ -22,14 +22,34 @@ from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_ta
 from urllib.parse import urlparse
 import aiohttp
 
+def enforce_log_format():
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            '%Y-%m-%d %H:%M:%S'
+        )
+        handler.setFormatter(formatter)
+
 app = FastAPI()
 
 llm_openai = "openai"
 llm_deepseek = "deepseek"
 llm_ark = "ark"
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+root_logger = logging.getLogger()
+for handler in root_logger.handlers:
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        '%Y-%m-%d %H:%M:%S'
+    )
+    handler.setFormatter(formatter)
 
 # logging.getLogger('browser_use').setLevel(logging.DEBUG)
 
@@ -49,7 +69,7 @@ async def format_sse(data: dict) -> str:
 
 
 async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
-    logging.info(f"Starting task: {task}, task_id: {task_id}, with CDP port: {current_port}")
+    logging.info(f"[{task_id}] Starting task with prompt: '{task}', CDP port: {current_port}")
     
     browser = None
     context = None
@@ -98,6 +118,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'status': 'browser_initialized',
                 'last_update': datetime.now().isoformat()
             })
+            logging.info(f"[{task_id}] Browser initialized on port {current_port}")
 
             config = BrowserContextConfig(
                 # save_recording_path=recording_dir,
@@ -206,6 +227,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
 
             try:
                 if llm_name == llm_openai:
+                    logging.info(f"[{task_id}] Creating OpenAI agent for task: {task}")
                     agent = Agent(
                         task=task,
                         llm=ChatOpenAI(model="gpt-4o"),
@@ -216,6 +238,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         register_new_step_callback=new_step_callback,
                     )
                 elif llm_name == llm_deepseek:
+                    logging.info(f"[{task_id}] Creating DeepSeek agent for task: {task}")
                     class BaiduSystemPrompt(SystemPrompt):
                         action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches.
                         1. NEVER use Google or any other search engine
@@ -242,6 +265,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         system_prompt_class=BaiduSystemPrompt
                     )
                 elif llm_name == llm_ark:
+                    logging.info(f"[{task_id}] Creating Ark agent for task: {task}")
                     # It's a workaround as ChatOpenAI will check the api key
                     os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
@@ -304,9 +328,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'status': 'agent_initialized',
                 'last_update': datetime.now().isoformat()
             })
+            logging.info(f"[{task_id}] Agent initialized and ready to run")
 
             # Start the agent in a separate task
             agent_task = asyncio.create_task(agent.run(10))
+            logging.info(f"[{task_id}] Agent started running")
 
             while not agent_task.done() or not sse_queue.empty():
                 if not sse_queue.empty():
@@ -367,11 +393,12 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'completed_at': datetime.now().isoformat(),
                 'result': final_result
             })
+            logging.info(f"[{task_id}] Task completed successfully")
 
             await browser.close()
 
         except Exception as e:
-            logging.error(f"Agent execution failed: {str(e)}")
+            logging.error(f"[{task_id}] Agent execution failed: {str(e)}")
             yield await format_sse({
                 "task_id": task_id,
                 "status": "error",
@@ -677,6 +704,7 @@ async def task_worker():
                     'status': 'running',
                     'started_at': datetime.now().isoformat()
                 })
+                logging.info(f"[{task_id}] Starting task execution from queue")
 
                 task_results = []
                 async for result in run_task(task_prompt, task_id, current_port):
@@ -695,9 +723,10 @@ async def task_worker():
                     'status': 'completed',
                     'completed_at': datetime.now().isoformat(),
                 })
+                logging.info(f"[{task_id}] Task worker completed processing task")
 
             except Exception as e:
-                logging.error(f"Task {task_id} failed: {e}")
+                logging.error(f"[{task_id}] Task worker encountered error: {e}")
                 # Update task status to failed
                 active_tasks[task_id].update({
                     'status': 'failed',
@@ -735,4 +764,5 @@ async def get_task_port(task_id: str, websocket: WebSocket = None) -> int:
 
 if __name__ == "__main__":
     check_llm_config()
+    enforce_log_format()
     uvicorn.run(app, host="0.0.0.0", port=8000)
