@@ -529,7 +529,7 @@ async def stream_task_results(task_id: str):
     
     return StreamingResponse(result_generator(), media_type="text/event-stream")
 
-@app.get("/devtools/json/list")
+@app.get("/tasks/{task_id}/devtools/json/list")
 async def json_list(task_id: str):
     port = await get_task_port(task_id)
     return await get_websocket_targets(port)
@@ -538,14 +538,21 @@ async def json_list(task_id: str):
 async def json_version(task_id: str):
     logging.info(f"Received request for /devtools/json/version with task_id: {task_id}")
     logging.info(f"active_tasks: {active_tasks}")
+
+    port = await get_task_port(task_id)
+    return await get_websocket_version(port)
+
+@app.get("/tasks/{task_id}/devtools/json/version")
+async def json_version(task_id: str):
+    logging.info(f"Received request for /devtools/json/version with task_id: {task_id}")
+    logging.info(f"active_tasks: {active_tasks}")
     
     port = await get_task_port(task_id)
     return await get_websocket_version(port)
 
-@app.websocket("/devtools/page/{page_id}")
-async def cdp_websocket(websocket: WebSocket, page_id: str):
-    query_params = dict(websocket.query_params)
-    task_id = query_params.get("task_id")
+@app.websocket("/tasks/{task_id}/devtools/page/{page_id}")
+async def cdp_websocket(websocket: WebSocket, task_id: str, page_id: str):
+    logging.info(f"Received request for /devtools/page/{page_id}?task_id={task_id}")
     
     port = await get_task_port(task_id, websocket)
     if port is None:
@@ -558,6 +565,16 @@ async def cdp_websocket_browser(websocket: WebSocket, browser_id: str):
     query_params = dict(websocket.query_params)
     task_id = query_params.get("task_id")
     logging.info(f"Received request for /devtools/browser/{browser_id}?task_id={task_id}")
+
+    port = await get_task_port(task_id, websocket)
+    if port is None:
+        return
+
+    await websocket_browser_endpoint(websocket, browser_id, port)
+
+@app.websocket("/tasks/{task_id}/devtools/browser/{browser_id}")
+async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: str):
+    logging.info(f"Received request for /devtools/browser/{browser_id}?task_id={task_id}")
     
     port = await get_task_port(task_id, websocket)
     if port is None:
@@ -565,7 +582,7 @@ async def cdp_websocket_browser(websocket: WebSocket, browser_id: str):
         
     await websocket_browser_endpoint(websocket, browser_id, port)
 
-@app.get("/devtools/inspector.html")
+@app.get("/tasks/{task_id}/devtools/inspector.html")
 async def inspector(request: Request):
     return await get_inspector(request.url)
 
