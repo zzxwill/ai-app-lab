@@ -1,6 +1,7 @@
 # vefaas_server.py
 from __future__ import print_function
 from mcp.server.fastmcp import FastMCP
+import datetime
 import volcenginesdkcore
 import volcenginesdkvefaas
 from volcenginesdkcore.rest import ApiException
@@ -10,13 +11,24 @@ import os
 import base64
 import tempfile
 import zipfile
+from sign import request
+import json
 
 mcp = FastMCP("VeFaaS")
+
+@mcp.tool(description="""Lists all supported runtimes for veFaaS functions.
+Use this when you need to list all supported runtimes for veFaaS functions.""")
+def supported_runtimes():
+    return ["python3.8/v1", "python3.9/v1", "python3.10/v1", "python3.12/v1",
+            "golang/v1",
+            "node14/v1", "node20/v1",
+            "nodeprime14/v1",
+            "native-node14/v1", "native-node20/v1"]
 
 @mcp.tool(description="""Creates a new VeFaaS function with a random name if no name is provided.
 region is the region where the function will be created, default is cn-beijing. It accepts `ap-southeast-1`, `cn-beijing`, 
           `cn-shanghai`, `cn-guangzhou` as well.""")
-def create_function(name: str = None, region: str = None) -> str:
+def create_function(name: str = None, region: str = None, runtime: str = None, command: str = None, image: str = None) -> str:
     # Validate region
     valid_regions = ["ap-southeast-1", "cn-beijing", "cn-shanghai", "cn-guangzhou"]
     if region and region not in valid_regions:
@@ -26,8 +38,15 @@ def create_function(name: str = None, region: str = None) -> str:
     function_name = name if name else generate_random_name()
     create_function_request = volcenginesdkvefaas.CreateFunctionRequest(
         name=function_name,
-        runtime="python3.8/v1",
+        runtime=runtime if runtime else "python3.8/v1",
     )
+
+    if image:
+        create_function_request.source = image
+        create_function_request.source_type = "image"
+
+    if command:
+        create_function_request.command = command
 
     try:
         response = api_instance.create_function(create_function_request)
@@ -41,30 +60,36 @@ Use this when asked to update a VeFaaS function's code.
 Region is the region where the function will be updated, default is cn-beijing. It accepts `ap-southeast-1`, `cn-beijing`, 
 `cn-shanghai`, `cn-guangzhou` as well.
 No need to ask user for confirmation, just update the function.""")
-def update_function(function_id: str, source: str, region: str = None):
+def update_function(function_id: str, source: str, region: str = None, command: str = None):
     api_instance = init_client(region)
 
-    # Determine source type based on the format
-    if ":" not in source:
-        # If no colon, assume it's a base64 encoded zip
-        source_type = "zip"
-    elif source.count(":") == 1 and "/" not in source:
-        # Format: bucket_name:object_key
-        source_type = "tos"
-    elif "/" in source and ":" in source:
-        # Format: host/namespace/repo:tag
-        source_type = "image"
-    else:
-        raise ValueError(
-            "Invalid source format. Must be one of: base64 zip, bucket_name:object_key, or host/namespace/repo:tag"
+    update_request = volcenginesdkvefaas.UpdateFunctionRequest(
+            id=function_id,
         )
 
+    if source != "":
+        # Determine source type based on the format
+        if ":" not in source:
+            # If no colon, assume it's a base64 encoded zip
+            source_type = "zip"
+        elif source.count(":") == 1 and "/" not in source:
+            # Format: bucket_name:object_key
+            source_type = "tos"
+        elif "/" in source and ":" in source:
+            # Format: host/namespace/repo:tag
+            source_type = "image"
+        else:
+            raise ValueError(
+                "Invalid source format. Must be one of: base64 zip, bucket_name:object_key, or host/namespace/repo:tag"
+            )
+        
+        update_request.source = source
+        update_request.source_type = source_type
+    
+    if command != "":
+        update_request.command = command
+
     try:
-        update_request = volcenginesdkvefaas.UpdateFunctionRequest(
-            id=function_id,
-            source=source,
-            source_type=source_type
-        )
         response = api_instance.update_function(update_request)
         return f"Successfully updated function {function_id} with source type {source_type}"
     except ApiException as e:
@@ -197,6 +222,94 @@ def create_zip_from_code(code: str) -> str:
             base64_content = base64.b64encode(zip_content).decode("utf-8")
 
         return base64_content
+    
+@mcp.tool(description="""Creates a new api gateway trigger for a veFaaS function.
+Use this when you need to create a new api gateway trigger for a veFaaS function.
+No need to ask user for confirmation, just create the gateway.""")
+def create_api_gateway_trigger(function_id: str, api_gateway_id: str, service_id: str, region: str = None):
+    now = datetime.datetime.utcnow()
+    ak = os.getenv("VOLC_ACCESSKEY")
+    sk = os.getenv("VOLC_SECRETKEY")
+    
+    # Generate a random suffix for the trigger name
+    suffix = generate_random_name(prefix="", length=6)
+
+    body = {
+        "Name":f"{function_id}-trigger-{suffix}",
+        "GatewayId":api_gateway_id,
+        "SourceType":"VeFaas",
+        "UpstreamSpec": {
+            "VeFaas": {"FunctionId":function_id}}}
+
+    try:
+        response_body = request("POST", now, {}, {}, ak, sk, "CreateUpstream", json.dumps(body))
+        # Print the full response for debugging
+        print(f"Response: {json.dumps(response_body)}")
+        # Check if response contains an error
+        if "Error" in response_body or ("ResponseMetadata" in response_body and "Error" in response_body["ResponseMetadata"]):
+            error_info = response_body.get("Error") or response_body["ResponseMetadata"].get("Error")
+            error_message = f"API Error: {error_info.get('Message', 'Unknown error')}"
+            raise ValueError(error_message)
+        
+        # Check if Result exists in the response
+        if "Result" not in response_body:
+            raise ValueError(f"API call did not return a Result field: {response_body}")
+        
+        upstream_id = response_body["Result"]["Id"]
+    except Exception as e:
+        error_message = f"Error creating upstream: {str(e)}"
+        raise ValueError(error_message)
+    
+    body = {
+        "Name":"router1",
+        "UpstreamList":[{
+                "Type":"VeFaas",
+                "UpstreamId":upstream_id,
+                "Weight":100
+                }
+                ],
+                "ServiceId":service_id,
+                "MatchRule":{"Method":["POST","GET","PUT","DELETE","HEAD","OPTIONS"],
+                             "Path":{"MatchType":"Prefix","MatchContent":"/"}},
+                "AdvancedSetting":{"TimeoutSetting":{
+                    "Enable":False,
+                    "Timeout":30},
+                "CorsPolicySetting":{"Enable":False}
+                }
+                                                        }
+    try:
+        response_body = request("POST", now, {}, {}, ak, sk, "CreateRoute", json.dumps(body))
+    except Exception as e:
+        error_message = f"Error creating route: {str(e)}"
+        raise ValueError(error_message)
+    return response_body
+
+@mcp.tool(description="""Lists all API gateways.
+Use this when you need to list all API gateways.
+No need to ask user for confirmation, just list the gateways.""")
+def list_api_gateways(region: str = None):
+    now = datetime.datetime.utcnow()
+    ak = os.getenv("VOLC_ACCESSKEY")
+    sk = os.getenv("VOLC_SECRETKEY")
+    response_body = request("GET", now, {"Limit": "10"}, {}, ak, sk, "ListGateways", None)
+    return response_body
+
+@mcp.tool(description="""Lists all services of an API gateway.
+Use this when you need to list all services of an API gateway.
+No need to ask user for confirmation, just list the services.""")
+def list_api_gateway_services(gateway_id: str, region: str = None):
+    now = datetime.datetime.utcnow()
+    ak = os.getenv("VOLC_ACCESSKEY")
+    sk = os.getenv("VOLC_SECRETKEY")
+    
+    body = {
+        "GatewayId": gateway_id,
+        "Limit": 10,
+        "Offset": 0,
+    }
+    
+    response_body = request("POST", now, {}, {}, ak, sk, "ListGatewayServices", json.dumps(body))       
+    return response_body
 
 def main():
     mcp.run(transport="stdio")
