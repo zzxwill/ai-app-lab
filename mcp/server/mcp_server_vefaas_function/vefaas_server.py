@@ -1,4 +1,3 @@
-# vefaas_server.py
 from __future__ import print_function
 from mcp.server.fastmcp import FastMCP
 import datetime
@@ -13,6 +12,9 @@ import tempfile
 import zipfile
 from sign import request
 import json
+from mcp.server.session import ServerSession
+from mcp.server.fastmcp import Context, FastMCP
+from starlette.requests import Request
 
 mcp = FastMCP("VeFaaS")
 
@@ -33,6 +35,41 @@ def create_function(name: str = None, region: str = None, runtime: str = None, c
     valid_regions = ["ap-southeast-1", "cn-beijing", "cn-shanghai", "cn-guangzhou"]
     if region and region not in valid_regions:
         raise ValueError(f"Invalid region. Must be one of: {', '.join(valid_regions)}")
+    
+
+    ctx: Context[ServerSession, object] = mcp.get_context()
+    raw_request: Request = ctx.request_context.request
+    auth = None
+    if raw_request:
+        # 从 header 的 authorization 字段读取 base64 编码后的 sts json
+        auth = raw_request.headers.get("authorization", None)
+    if auth is None:
+        # 如果 header 中没有认证信息，可能是 stdio 模式，尝试从环境变量获取
+        auth = os.getenv("authorization", None)
+    if auth is None:
+        # 获取认证信息失败
+        raise ValueError("Missing authorization info.")
+
+    if ' ' in auth:
+        _, base64_data = auth.split(' ', 1)
+    else:
+        base64_data = auth
+
+    try:
+        # 解码 Base64
+        decoded_str = base64.b64decode(base64_data).decode('utf-8')
+        data = json.loads(decoded_str)
+
+        # 获取字段
+        current_time = data.get('CurrentTime')
+        expired_time = data.get('ExpiredTime')
+        ak = data.get('AccessKeyId')
+        sk = data.get('SecretAccessKey')
+        session_token = data.get('SessionToken')
+
+    except Exception as e:
+        raise ValueError("Decode authorization info error", e)
+    
     
     api_instance = init_client(region)
     function_name = name if name else generate_random_name()
@@ -178,15 +215,17 @@ def generate_random_name(prefix="mcp", length=8):
     )
     return f"{prefix}-{random_str}"
 
-def init_client(region: str = None):
+def init_client(region: str = None, ak: str = None, sk: str = None):
     """Set up VeFaaS configuration with credentials from environment variables"""
-    if "VOLC_ACCESSKEY" not in os.environ:
-        raise ValueError("VOLC_ACCESSKEY environment variable is not set")
-    if "VOLC_SECRETKEY" not in os.environ:
-        raise ValueError("VOLC_SECRETKEY environment variable is not set")
+    if ak is None:
+        if "VOLC_ACCESSKEY" not in os.environ:
+            raise ValueError("VOLC_ACCESSKEY environment variable is not set")
+    if sk is None:
+        if "VOLC_SECRETKEY" not in os.environ:
+            raise ValueError("VOLC_SECRETKEY environment variable is not set")
 
-    ak = os.environ["VOLC_ACCESSKEY"]
-    sk = os.environ["VOLC_SECRETKEY"]
+    ak = ak if ak is not None else os.environ["VOLC_ACCESSKEY"]
+    sk = sk if sk is not None else os.environ["VOLC_SECRETKEY"]
 
     configuration = volcenginesdkcore.Configuration()
     configuration.ak = ak
@@ -312,7 +351,7 @@ def list_api_gateway_services(gateway_id: str, region: str = None):
     return response_body
 
 def main():
-    mcp.run(transport="stdio")
+    mcp.run(transport="sse")
 
 if __name__ == "__main__":
     main()
