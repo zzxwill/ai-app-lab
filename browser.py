@@ -21,7 +21,6 @@ class BrowserWrapper:
         self.playwright = playwright
 
     def stop(self):
-        print("kuoxin@: stop")
         # TODO: kuoxin@ why bother close and stop?
         if self.browser:
             logging.info(f"Closing browser on port {self.port}...")
@@ -35,7 +34,6 @@ class BrowserWrapper:
 
 
 async def start_browser(port):
-    print("kuoxin@: start")
     logging.info(f"Attempting to start browser on port {port}")
     p = None
     browser = None

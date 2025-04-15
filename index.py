@@ -21,11 +21,9 @@ from playwright.async_api import async_playwright
 from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
 from urllib.parse import urlparse
 import aiohttp
-
 from utils import enforce_log_format, check_llm_config
 from browser import start_browser
 from task import TaskManager
-
 
 app = FastAPI()
 load_dotenv()
@@ -43,10 +41,35 @@ CURRENT_CDP_PORT = 9222
 taskManager = TaskManager()
 
 
-async def format_sse(data: dict) -> str:
+def format_sse(data: dict) -> str:
     """Format data as SSE message"""
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
+
+
+async def snapshot_polling(browser_ctx, interval=5000.0) -> AsyncGenerator:
+    base_dir = "videos"
+    snapshot_dir = os.path.join(base_dir, "snapshots")
+    Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        counter = 0
+        while True:
+            try:
+                counter += 1
+                screenshot = await browser_ctx.take_screenshot()
+                yield screenshot
+
+                filename = f"polling_snapshot_{counter:03d}.png"
+                filepath = os.path.join(snapshot_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(base64.b64decode(screenshot))
+
+            except Exception as e:
+                pass
+
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        pass
 
 
 async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
@@ -61,7 +84,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             'status': 'starting',
             'started_at': datetime.now().isoformat()
         })
-        yield await format_sse({"task_id": task_id, "status": "started"})
+        yield format_sse({"task_id": task_id, "status": "started"})
 
         base_dir = "videos"
         base_dir = os.path.join(base_dir, task_id)
@@ -78,13 +101,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         # trace_dir = os.path.join(base_dir, "trace")
         # Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
-        # browser_task = asyncio.create_task(start_browser(current_port))
-
-        # await browser_ready_event.wait()
-
-        # # # Wait for browser task to complete (which should be never)
-        # await browser_task
-
         try:
             browser = Browser(
                 config=BrowserConfig(
@@ -95,7 +111,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 )
             )
 
-            yield await format_sse({"task_id": task_id, "status": "browser_initialized"})
+            yield format_sse({"task_id": task_id, "status": "browser_initialized"})
             taskManager.update_task(task_id, {
                 'status': 'browser_initialized',
                 'last_update': datetime.now().isoformat()
@@ -118,12 +134,14 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             async def new_step_callback(state, model_output, step_number):
                 if model_output:
                     conversation_update = {
-                        "step": step_number,
+                        "step": step_number-1,
                         "goal": model_output.current_state.next_goal if hasattr(model_output.current_state, "next_goal") else "",
                         "memory": model_output.current_state.memory if hasattr(model_output.current_state, "memory") else "",
                         "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
-                        "actions": [a.dict() for a in model_output.action] if hasattr(model_output, "action") else []
                     }
+                    if hasattr(model_output, "action"):
+                        conversation_update["actions"] = [
+                            a.dict() for a in model_output.action]
 
                     # Update active_tasks with current step and goal
                     taskManager.update_task(task_id, {
@@ -131,7 +149,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     })
 
                     # Create and send conversation update without yielding
-                    conv_message = await format_sse(
+                    conv_message = format_sse(
                         {
                             "task_id": task_id,
                             "status": "conversation_update",
@@ -142,71 +160,30 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         }
                     )
                     asyncio.create_task(send_sse_message(conv_message))
-
-                # if state and state.screenshot:
-                #     sse_message = await format_sse(
-                #         {
-                #             "task_id": task_id,
-                #             "status": "live_screenshot",
-                #             "metadata": {
-                #                 "type": "browser_live_screenshot_base64",
-                #                 "data": state.screenshot,
-                #             }
-                #         }
-                #     )
-
-                #     # Use asyncio.create_task to send the message without waiting
-                #     asyncio.create_task(send_sse_message(sse_message))
-                #     filename = f"snapshot_{step_number:03d}.png"
-                #     filepath = os.path.join(snapshot_dir, filename)
-                #     with open(filepath, "wb") as f:
-                #         f.write(base64.b64decode(state.screenshot))
-
                 return True
 
+            # setup a message queue to pass intermediate result
             async def send_sse_message(message):
                 nonlocal sse_queue
                 await sse_queue.put(message)
-
             sse_queue = asyncio.Queue()
 
-            # interval in seconds
-            async def snapshot_polling(browser_ctx, interval=1.0):
-                try:
-                    counter = 0
-                    while True:
-                        try:
-                            counter += 1
-                            screenshot = await browser_ctx.take_screenshot()
-                            sse_message = await format_sse(
-                                {
-                                    "task_id": task_id,
-                                    "status": "polling_snapshot",
-                                    "metadata": {
-                                        "type": "browser_live_screenshot_base64",
-                                        "data": screenshot,
-                                    }
-                                }
-                            )
-                            asyncio.create_task(send_sse_message(sse_message))
+            # screenshot polling task
+            async def polling_task_wrapper(context):
+                async for screenshot in snapshot_polling(context):
+                    sse_message = format_sse({
+                        "task_id": task_id,
+                        "status": "polling_snapshot",
+                        "metadata": {
+                            "type": "browser_live_screenshot_base64",
+                            "data": screenshot,
+                        }})
+                    await send_sse_message(sse_message)
+            polling_task = asyncio.create_task(polling_task_wrapper(context))
 
-                            filename = f"polling_snapshot_{counter:03d}.png"
-                            filepath = os.path.join(snapshot_dir, filename)
-                            with open(filepath, "wb") as f:
-                                f.write(base64.b64decode(screenshot))
-
-                        except Exception as e:
-                            pass
-
-                        await asyncio.sleep(interval)
-                except asyncio.CancelledError:
-                    pass
-
-            polling_task = asyncio.create_task(snapshot_polling(context))
-
+            # the real browser-use agent
             logging.info(
                 f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
-
             try:
                 if llm_name == llm_openai:
                     logging.info(
@@ -220,47 +197,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
                     )
-                elif llm_name == llm_deepseek:
-                    logging.info(
-                        f"[{task_id}] Creating DeepSeek agent for task: {task}")
-
-                    class BaiduSystemPrompt(SystemPrompt):
-                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches.
-                        1. NEVER use Google or any other search engine
-                        2. ALWAYS start by navigating to https://www.baidu.com
-                        3. Use Baidu's search box for all searches
-                        4. This is a strict requirement - you must use Baidu.com"""
-
-                    # It's a workaround as ChatOpenAI will check the api key
-                    os.environ["OPENAI_API_KEY"] = "sk-dummy"
-                    baidu_task = f"Remember to use ONLY baidu.com for searching. Task: {task}"
-
-                    agent = Agent(
-                        task=baidu_task,
-                        llm=ChatOpenAI(
-                            base_url="https://api.deepseek.com/v1",
-                            model="deepseek-chat",
-                            api_key=os.getenv("DEEPSEEK_API_KEY")
-                        ),
-                        use_vision=False,
-                        browser_context=context,
-                        # save_conversation_path=os.path.join(base_dir, "conversation"),
-                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                        register_new_step_callback=new_step_callback,
-                        system_prompt_class=BaiduSystemPrompt
-                    )
                 elif llm_name == llm_ark:
                     logging.info(
                         f"[{task_id}] Creating Ark agent for task: {task}")
                     # It's a workaround as ChatOpenAI will check the api key
                     os.environ["OPENAI_API_KEY"] = "sk-dummy"
-
-                    class BaiduSystemPrompt(SystemPrompt):
-                        action_description = """IMPORTANT: You must ALWAYS use Baidu.com for ALL searches.
-                        1. NEVER use Google or any other search engine
-                        2. ALWAYS start by navigating to https://www.baidu.com
-                        3. Use Baidu's search box for all searches
-                        4. This is a strict requirement - you must use Baidu.com"""
 
                     agent = Agent(
                         task=task,
@@ -288,15 +229,13 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         # save_conversation_path=os.path.join(base_dir, "conversation"),
                         # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                         register_new_step_callback=new_step_callback,
-                        # register_done_callback=step_done_callback,
-                        # system_prompt_class=BaiduSystemPrompt
                     )
                 else:
                     raise ValueError(f"Unknown LLM type: {llm_name}")
 
             except Exception as e:
                 logging.error(f"Failed to create agent: {str(e)}")
-                yield await format_sse({
+                yield format_sse({
                     "task_id": task_id,
                     "status": "error",
                     "error": f"Agent creation failed: {str(e)}"
@@ -308,14 +247,14 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 })
                 return
 
-            yield await format_sse({"task_id": task_id, "status": "agent_initialized"})
+            yield format_sse({"task_id": task_id, "status": "agent_initialized"})
             taskManager.update_task(task_id, {
                 'status': 'agent_initialized',
                 'last_update': datetime.now().isoformat()
             })
             logging.info(f"[{task_id}] Agent initialized and ready to run")
 
-            # Start the agent in a separate task
+            # Start the agent in a separate async task
             agent_task = asyncio.create_task(agent.run(10))
             logging.info(f"[{task_id}] Agent started running")
 
@@ -324,7 +263,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     yield await sse_queue.get()
                 else:
                     await asyncio.sleep(0.1)
-            print("kuoxin@: break the loop?")
 
             result = await agent_task
 
@@ -344,7 +282,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     for history_item in result.history
                 ]
 
-            # yield await format_sse({
+            # yield format_sse({
             #     "task_id": task_id,
             #     "status": "completed",
             #     "metadata": {
@@ -353,7 +291,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             #     }
             # })
 
-            # yield await format_sse({
+            # yield format_sse({
             #     "task_id": task_id,
             #     "status": "completed",
             #     "metadata": {
@@ -362,7 +300,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             #     }
             # })
 
-            yield await format_sse({
+            # task completed
+            yield format_sse({
                 "task_id": task_id,
                 "status": "completed",
                 "choices": [{
@@ -376,7 +315,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
 
             browser = taskManager.get_task_by_id(task_id)['browser']
             browser.stop()
-
             taskManager.update_task(task_id, {
                 'status': 'completed',
                 'completed_at': datetime.now().isoformat(),
@@ -385,7 +323,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             logging.info(f"[{task_id}] Task completed successfully")
         except Exception as e:
             logging.error(f"[{task_id}] Agent execution failed: {str(e)}")
-            yield await format_sse({
+            yield format_sse({
                 "task_id": task_id,
                 "status": "error",
                 "error": f"Agent execution failed: {str(e)}"
@@ -401,7 +339,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 await polling_task
             except asyncio.CancelledError:
                 pass
-
             try:
                 if context:
                     await context.close()
@@ -411,7 +348,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 logging.error(f"Failed to close browser/context: {str(e)}")
     except Exception as e:
         logging.error(f"Task execution failed: {str(e)}")
-        yield await format_sse({
+        yield format_sse({
             "task_id": task_id,
             "status": "error",
             "error": str(e)
@@ -499,7 +436,7 @@ async def stream_task_results(task_id: str):
     async def result_generator():
         task_info = taskManager.get_task_by_id(task_id)
         async for result in run_task(task_info['prompt'], task_id, port):
-            yield await format_sse({
+            yield format_sse({
                 "task_id": task_id,
                 "data": result
             })
@@ -538,7 +475,7 @@ async def cdp_websocket(websocket: WebSocket, task_id: str, page_id: str):
     logging.info(
         f"Received request for /devtools/page/{page_id}?task_id={task_id}")
 
-    port = await get_task_port(task_id, websocket)
+    port = await taskManager.get_task_port(task_id, websocket)
     if port is None:
         return
 
