@@ -47,7 +47,7 @@ def format_sse(data: dict) -> str:
     return message
 
 
-async def snapshot_polling(browser_ctx, interval=5000.0) -> AsyncGenerator:
+async def snapshot_polling(browser_ctx, interval=5.0) -> AsyncGenerator:
     base_dir = "videos"
     snapshot_dir = os.path.join(base_dir, "snapshots")
     Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
@@ -70,6 +70,21 @@ async def snapshot_polling(browser_ctx, interval=5000.0) -> AsyncGenerator:
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         pass
+
+
+async def new_step_callback(state, model_output, step_number):
+    if model_output:
+        conversation_update = {
+            "step": step_number-1,
+            "goal": model_output.current_state.next_goal if hasattr(model_output.current_state, "next_goal") else "",
+            "memory": model_output.current_state.memory if hasattr(model_output.current_state, "memory") else "",
+            "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
+        }
+        if hasattr(model_output, "action"):
+            conversation_update["actions"] = [
+                a.dict() for a in model_output.action]
+
+        return conversation_update
 
 
 async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
@@ -131,36 +146,24 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 config=config
             )
 
-            async def new_step_callback(state, model_output, step_number):
-                if model_output:
-                    conversation_update = {
-                        "step": step_number-1,
-                        "goal": model_output.current_state.next_goal if hasattr(model_output.current_state, "next_goal") else "",
-                        "memory": model_output.current_state.memory if hasattr(model_output.current_state, "memory") else "",
-                        "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
-                    }
-                    if hasattr(model_output, "action"):
-                        conversation_update["actions"] = [
-                            a.dict() for a in model_output.action]
-
-                    # Update active_tasks with current step and goal
-                    taskManager.update_task(task_id, {
-                        'status': 'running',
-                    })
-
-                    # Create and send conversation update without yielding
-                    conv_message = format_sse(
-                        {
-                            "task_id": task_id,
-                            "status": "conversation_update",
-                            "metadata": {
-                                "type": "planning_step",
-                                "data": conversation_update
-                            }
+            async def new_step_callback_wrapper(state, model_output, step_number):
+                conversation_update = await new_step_callback(state, model_output, step_number)
+                # Update active_tasks with current step and goal
+                taskManager.update_task(task_id, {
+                    'status': 'running',
+                })
+                # Create and send conversation update without yielding
+                conv_message = format_sse(
+                    {
+                        "task_id": task_id,
+                        "status": "conversation_update",
+                        "metadata": {
+                            "type": "planning_step",
+                            "data": conversation_update
                         }
-                    )
-                    asyncio.create_task(send_sse_message(conv_message))
-                return True
+                    }
+                )
+                asyncio.create_task(send_sse_message(conv_message))
 
             # setup a message queue to pass intermediate result
             async def send_sse_message(message):
@@ -195,7 +198,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         browser_context=context,
                         # save_conversation_path=os.path.join(base_dir, "conversation"),
                         # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                        register_new_step_callback=new_step_callback,
+                        register_new_step_callback=new_step_callback_wrapper,
                     )
                 elif llm_name == llm_ark:
                     logging.info(
@@ -228,7 +231,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         browser_context=context,
                         # save_conversation_path=os.path.join(base_dir, "conversation"),
                         # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                        register_new_step_callback=new_step_callback,
+                        register_new_step_callback=new_step_callback_wrapper,
                     )
                 else:
                     raise ValueError(f"Unknown LLM type: {llm_name}")
