@@ -147,6 +147,25 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             config=config
         )
 
+        async def new_progress_callback(msg: str):
+            taskManager.update_task(task_id, {
+                'status': 'running',
+            })
+            # Create and send conversation update without yielding
+            conv_message = format_sse(
+                {
+                    "task_id": task_id,
+                    "status": "conversation_update",
+                    "metadata": {
+                        "type": "message",
+                        "data": {
+                            "message": msg
+                        }
+                    }
+                }
+            )
+            asyncio.create_task(send_sse_message(conv_message))
+
         async def new_step_callback_wrapper(state, model_output, step_number):
             conversation_update = await new_step_callback(state, model_output, step_number)
             # Update active_tasks with current step and goal
@@ -233,6 +252,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     # save_conversation_path=os.path.join(base_dir, "conversation"),
                     # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                     register_new_step_callback=new_step_callback_wrapper,
+                    register_new_progress_callback=new_progress_callback
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
