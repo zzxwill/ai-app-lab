@@ -75,15 +75,14 @@ async def snapshot_polling(browser_ctx, interval=5.0) -> AsyncGenerator:
 async def new_step_callback(state, model_output, step_number):
     if model_output:
         conversation_update = {
-            "step": step_number-1,
+            "step": step_number-1,  # need to minus 1 to refect actual step number
             "goal": model_output.current_state.next_goal if hasattr(model_output.current_state, "next_goal") else "",
             "memory": model_output.current_state.memory if hasattr(model_output.current_state, "memory") else "",
             "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
         }
         if hasattr(model_output, "action"):
-            conversation_update["actions"] = [
-                a.dict() for a in model_output.action]
-
+            conversation_update["actions"] = [a.dict()
+                                              for a in model_output.action]
         return conversation_update
 
 
@@ -93,269 +92,272 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
 
     browser = None
     context = None
+    agent = None
+    agent_task = None
+
+    # Send initial status and update task
+    taskManager.update_task(task_id, {
+        'status': 'starting',
+        'started_at': datetime.now().isoformat()
+    })
+    yield format_sse({"task_id": task_id, "status": "started"})
+
+    base_dir = "videos"
+    base_dir = os.path.join(base_dir, task_id)
+
+    snapshot_dir = os.path.join(base_dir, "snapshots")
+    Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+
+    # gif_dir = os.path.join(base_dir, "gif")
+    # Path(gif_dir).mkdir(parents=True, exist_ok=True)
+
+    # recording_dir = os.path.join(base_dir, "recording")
+    # Path(recording_dir).mkdir(parents=True, exist_ok=True)
+
+    # trace_dir = os.path.join(base_dir, "trace")
+    # Path(trace_dir).mkdir(parents=True, exist_ok=True)
+
     try:
-        # Send initial status and update task
+        browser = Browser(
+            config=BrowserConfig(
+                headless=True,
+                disable_security=True,
+                # deterministic_rendering=True
+                cdp_url=f"http://127.0.0.1:{current_port}"
+            )
+        )
+
+        yield format_sse({"task_id": task_id, "status": "browser_initialized"})
         taskManager.update_task(task_id, {
-            'status': 'starting',
-            'started_at': datetime.now().isoformat()
+            'status': 'browser_initialized',
+            'last_update': datetime.now().isoformat()
         })
-        yield format_sse({"task_id": task_id, "status": "started"})
+        logging.info(
+            f"[{task_id}] Browser initialized on port {current_port}")
 
-        base_dir = "videos"
-        base_dir = os.path.join(base_dir, task_id)
+        config = BrowserContextConfig(
+            # save_recording_path=recording_dir,
+            # save_downloads_path=os.path.join(base_dir, "download"),
+            # trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
+            highlight_elements=False,
+        )
 
-        snapshot_dir = os.path.join(base_dir, "snapshots")
-        Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
+        context = BrowserContext(
+            browser=browser,
+            config=config
+        )
 
-        # gif_dir = os.path.join(base_dir, "gif")
-        # Path(gif_dir).mkdir(parents=True, exist_ok=True)
-
-        # recording_dir = os.path.join(base_dir, "recording")
-        # Path(recording_dir).mkdir(parents=True, exist_ok=True)
-
-        # trace_dir = os.path.join(base_dir, "trace")
-        # Path(trace_dir).mkdir(parents=True, exist_ok=True)
-
-        try:
-            browser = Browser(
-                config=BrowserConfig(
-                    headless=True,
-                    disable_security=True,
-                    # deterministic_rendering=True
-                    cdp_url=f"http://127.0.0.1:{current_port}"
-                )
-            )
-
-            yield format_sse({"task_id": task_id, "status": "browser_initialized"})
+        async def new_step_callback_wrapper(state, model_output, step_number):
+            conversation_update = await new_step_callback(state, model_output, step_number)
+            # Update active_tasks with current step and goal
             taskManager.update_task(task_id, {
-                'status': 'browser_initialized',
-                'last_update': datetime.now().isoformat()
+                'status': 'running',
             })
-            logging.info(
-                f"[{task_id}] Browser initialized on port {current_port}")
-
-            config = BrowserContextConfig(
-                # save_recording_path=recording_dir,
-                # save_downloads_path=os.path.join(base_dir, "download"),
-                # trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
-                highlight_elements=False,
-            )
-
-            context = BrowserContext(
-                browser=browser,
-                config=config
-            )
-
-            async def new_step_callback_wrapper(state, model_output, step_number):
-                conversation_update = await new_step_callback(state, model_output, step_number)
-                # Update active_tasks with current step and goal
-                taskManager.update_task(task_id, {
-                    'status': 'running',
-                })
-                # Create and send conversation update without yielding
-                conv_message = format_sse(
-                    {
-                        "task_id": task_id,
-                        "status": "conversation_update",
-                        "metadata": {
-                            "type": "planning_step",
-                            "data": conversation_update
-                        }
-                    }
-                )
-                asyncio.create_task(send_sse_message(conv_message))
-
-            # setup a message queue to pass intermediate result
-            async def send_sse_message(message):
-                nonlocal sse_queue
-                await sse_queue.put(message)
-            sse_queue = asyncio.Queue()
-
-            # screenshot polling task
-            async def polling_task_wrapper(context):
-                async for screenshot in snapshot_polling(context):
-                    sse_message = format_sse({
-                        "task_id": task_id,
-                        "status": "polling_snapshot",
-                        "metadata": {
-                            "type": "browser_live_screenshot_base64",
-                            "data": screenshot,
-                        }})
-                    await send_sse_message(sse_message)
-            polling_task = asyncio.create_task(polling_task_wrapper(context))
-
-            # the real browser-use agent
-            logging.info(
-                f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
-            try:
-                if llm_name == llm_openai:
-                    logging.info(
-                        f"[{task_id}] Creating OpenAI agent for task: {task}")
-                    agent = Agent(
-                        task=task,
-                        llm=ChatOpenAI(model="gpt-4o"),
-                        use_vision=True,
-                        browser_context=context,
-                        # save_conversation_path=os.path.join(base_dir, "conversation"),
-                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                        register_new_step_callback=new_step_callback_wrapper,
-                    )
-                elif llm_name == llm_ark:
-                    logging.info(
-                        f"[{task_id}] Creating Ark agent for task: {task}")
-                    # It's a workaround as ChatOpenAI will check the api key
-                    os.environ["OPENAI_API_KEY"] = "sk-dummy"
-
-                    agent = Agent(
-                        task=task,
-                        initial_actions=[
-                            {"go_to_url": {"url": "https://baidu.com"}}],
-                        llm=ChatOpenAI(
-                            base_url="https://ark.cn-beijing.volces.com/api/v3",
-                            model=os.getenv("ARK_MODEL_ID"),
-                            api_key=os.getenv("ARK_API_KEY"),
-                            default_headers={
-                                "X-Client-Request-Id": "vefaas-browser-use-20250403"}
-                        ),
-                        page_extraction_llm=ChatOpenAI(
-                            base_url="https://ark.cn-beijing.volces.com/api/v3",
-                            model=os.getenv("ARK_EXTRACT_MODEL_ID"),
-                            api_key=os.getenv("ARK_API_KEY"),
-                            default_headers={
-                                "X-Client-Request-Id": "vefaas-browser-use-20250403"}
-                        ),
-                        use_vision=os.getenv(
-                            "ARK_USE_VISION", "False").lower() == "true",
-                        tool_calling_method=os.getenv(
-                            "ARK_FUNCTION_CALLING", "raw").lower(),
-                        browser_context=context,
-                        # save_conversation_path=os.path.join(base_dir, "conversation"),
-                        # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
-                        register_new_step_callback=new_step_callback_wrapper,
-                    )
-                else:
-                    raise ValueError(f"Unknown LLM type: {llm_name}")
-
-            except Exception as e:
-                logging.error(f"Failed to create agent: {str(e)}")
-                yield format_sse({
+            # Create and send conversation update without yielding
+            conv_message = format_sse(
+                {
                     "task_id": task_id,
-                    "status": "error",
-                    "error": f"Agent creation failed: {str(e)}"
-                })
-                taskManager.update_task(task_id, {
-                    'status': 'failed',
-                    'error': f"Agent creation failed: {str(e)}",
-                    'failed_at': datetime.now().isoformat()
-                })
-                return
+                    "status": "conversation_update",
+                    "metadata": {
+                        "type": "planning_step",
+                        "data": conversation_update
+                    }
+                }
+            )
+            asyncio.create_task(send_sse_message(conv_message))
 
-            yield format_sse({"task_id": task_id, "status": "agent_initialized"})
-            taskManager.update_task(task_id, {
-                'status': 'agent_initialized',
-                'last_update': datetime.now().isoformat()
-            })
-            logging.info(f"[{task_id}] Agent initialized and ready to run")
+        # setup a message queue to pass intermediate result
+        async def send_sse_message(message):
+            nonlocal sse_queue
+            await sse_queue.put(message)
+        sse_queue = asyncio.Queue()
 
-            # Start the agent in a separate async task
-            agent_task = asyncio.create_task(agent.run(10))
-            logging.info(f"[{task_id}] Agent started running")
+        # screenshot polling task
+        async def polling_task_wrapper(context):
+            async for screenshot in snapshot_polling(context):
+                sse_message = format_sse({
+                    "task_id": task_id,
+                    "status": "polling_snapshot",
+                    "metadata": {
+                        "type": "browser_live_screenshot_base64",
+                        "data": screenshot,
+                    }})
+                await send_sse_message(sse_message)
+        polling_task = asyncio.create_task(polling_task_wrapper(context))
 
-            while not agent_task.done() or not sse_queue.empty():
-                if not sse_queue.empty():
-                    yield await sse_queue.get()
-                else:
-                    await asyncio.sleep(0.1)
+        # the real browser-use agent
+        logging.info(
+            f"Creating agent with task: {task}, llm: {llm_name}, task_id: {task_id}")
+        try:
+            if llm_name == llm_openai:
+                logging.info(
+                    f"[{task_id}] Creating OpenAI agent for task: {task}")
+                agent = Agent(
+                    task=task,
+                    llm=ChatOpenAI(model="gpt-4o"),
+                    use_vision=True,
+                    browser_context=context,
+                    # save_conversation_path=os.path.join(base_dir, "conversation"),
+                    # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                    register_new_step_callback=new_step_callback_wrapper,
+                )
+            elif llm_name == llm_ark:
+                logging.info(
+                    f"[{task_id}] Creating Ark agent for task: {task}")
+                # It's a workaround as ChatOpenAI will check the api key
+                os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
-            result = await agent_task
+                agent = Agent(
+                    task=task,
+                    initial_actions=[
+                        {"go_to_url": {"url": "https://baidu.com"}}],
+                    llm=ChatOpenAI(
+                        base_url="https://ark.cn-beijing.volces.com/api/v3",
+                        model=os.getenv("ARK_MODEL_ID"),
+                        api_key=os.getenv("ARK_API_KEY"),
+                        default_headers={
+                            "X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                    ),
+                    page_extraction_llm=ChatOpenAI(
+                        base_url="https://ark.cn-beijing.volces.com/api/v3",
+                        model=os.getenv("ARK_EXTRACT_MODEL_ID"),
+                        api_key=os.getenv("ARK_API_KEY"),
+                        default_headers={
+                            "X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                    ),
+                    use_vision=os.getenv(
+                        "ARK_USE_VISION", "False").lower() == "true",
+                    tool_calling_method=os.getenv(
+                        "ARK_FUNCTION_CALLING", "raw").lower(),
+                    browser_context=context,
+                    # save_conversation_path=os.path.join(base_dir, "conversation"),
+                    # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
+                    register_new_step_callback=new_step_callback_wrapper,
+                )
+            else:
+                raise ValueError(f"Unknown LLM type: {llm_name}")
 
-            final_result = None
-            for history_item in reversed(result.history):
-                for result_item in history_item.result:
-                    if hasattr(result_item, "is_done") and result_item.is_done == True:
-                        final_result = result_item.extracted_content
-                        break
-                if final_result:
-                    break
-
-            if not final_result:
-                final_result = [
-                    [item.extracted_content for item in history_item.result if hasattr(
-                        item, "extracted_content")]
-                    for history_item in result.history
-                ]
-
-            # yield format_sse({
-            #     "task_id": task_id,
-            #     "status": "completed",
-            #     "metadata": {
-            #         "type": "screentshot_gif_path",
-            #         "data": gif_dir
-            #     }
-            # })
-
-            # yield format_sse({
-            #     "task_id": task_id,
-            #     "status": "completed",
-            #     "metadata": {
-            #         "type": "recording_path",
-            #         "data": recording_dir
-            #     }
-            # })
-
-            # task completed
-            yield format_sse({
-                "task_id": task_id,
-                "status": "completed",
-                "choices": [{
-                    "delta": {
-                        "role": "assistant",  # 固定值 assistant
-                        "content": final_result  # 不一定是完整的内容，只有 sse 请求执行完成后才会完成 内容输出
-                    },
-                }],
-                "result": final_result
-            })
-
-            browser = taskManager.get_task_by_id(task_id)['browser']
-            browser.stop()
-            taskManager.update_task(task_id, {
-                'status': 'completed',
-                'completed_at': datetime.now().isoformat(),
-                'result': final_result
-            })
-            logging.info(f"[{task_id}] Task completed successfully")
         except Exception as e:
-            logging.error(f"[{task_id}] Agent execution failed: {str(e)}")
+            logging.error(f"Failed to create agent: {str(e)}")
             yield format_sse({
                 "task_id": task_id,
                 "status": "error",
-                "error": f"Agent execution failed: {str(e)}"
+                "error": f"Agent creation failed: {str(e)}"
             })
             taskManager.update_task(task_id, {
                 'status': 'failed',
-                'error': f"Agent execution failed: {str(e)}",
+                'error': f"Agent creation failed: {str(e)}",
                 'failed_at': datetime.now().isoformat()
             })
-        finally:
-            polling_task.cancel()
-            try:
-                await polling_task
-            except asyncio.CancelledError:
-                pass
-            try:
-                if context:
-                    await context.close()
-                if browser:
-                    await browser.stop()
-            except Exception as e:
-                logging.error(f"Failed to close browser/context: {str(e)}")
+            return
+
+        yield format_sse({"task_id": task_id, "status": "agent_initialized"})
+        taskManager.update_task(task_id, {
+            'status': 'agent_initialized',
+            'last_update': datetime.now().isoformat()
+        })
+        logging.info(f"[{task_id}] Agent initialized and ready to run")
+
+        # Start the agent in a separate async task
+        agent_task = asyncio.create_task(agent.run(20))
+        logging.info(f"[{task_id}] Agent started running")
+
+        while not agent_task.done() or not sse_queue.empty():
+            if not sse_queue.empty():
+                yield await sse_queue.get()
+            else:
+                await asyncio.sleep(0.1)
+
+        result = await agent_task
+
+        final_result = None
+        for history_item in reversed(result.history):
+            for result_item in history_item.result:
+                if hasattr(result_item, "is_done") and result_item.is_done == True:
+                    final_result = result_item.extracted_content
+                    break
+            if final_result:
+                break
+
+        if not final_result:
+            final_result = [
+                [item.extracted_content for item in history_item.result if hasattr(
+                    item, "extracted_content")]
+                for history_item in result.history
+            ]
+
+        # yield format_sse({
+        #     "task_id": task_id,
+        #     "status": "completed",
+        #     "metadata": {
+        #         "type": "screentshot_gif_path",
+        #         "data": gif_dir
+        #     }
+        # })
+
+        # yield format_sse({
+        #     "task_id": task_id,
+        #     "status": "completed",
+        #     "metadata": {
+        #         "type": "recording_path",
+        #         "data": recording_dir
+        #     }
+        # })
+
+        # task completed
+        yield format_sse({
+            "task_id": task_id,
+            "status": "completed",
+            "choices": [{
+                "delta": {
+                    "role": "assistant",  # 固定值 assistant
+                    "content": final_result  # 不一定是完整的内容，只有 sse 请求执行完成后才会完成 内容输出
+                },
+            }],
+            "result": final_result
+        })
+        taskManager.update_task(task_id, {
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat(),
+            'result': final_result
+        })
+        logging.info(f"[{task_id}] Task completed successfully")
     except Exception as e:
-        logging.error(f"Task execution failed: {str(e)}")
+        logging.error(f"[{task_id}] Agent execution failed: {str(e)}")
         yield format_sse({
             "task_id": task_id,
             "status": "error",
-            "error": str(e)
+            "error": f"Agent execution failed: {str(e)}"
         })
+        taskManager.update_task(task_id, {
+            'status': 'failed',
+            'error': f"Agent execution failed: {str(e)}",
+            'failed_at': datetime.now().isoformat()
+        })
+    finally:
+        print("finally")
+        # agent.stop()
+        while not agent_task.done():
+            print("sleep")
+            await asyncio.sleep(0.1)
+            print("after sleep")
+        print("after while")
+        await agent_task
+        print("done")
+        polling_task.cancel()
+        try:
+            await polling_task
+        except asyncio.CancelledError:
+            pass
+
+        try:
+            # if context:
+            #     await context.close()
+            browser_cdp = taskManager.get_task_by_id(task_id)['browser']
+            if browser_cdp:
+                await browser_cdp.stop()
+        except Exception as e:
+            logging.error(f"Failed to close browser/context: {str(e)}")
 
 
 class Message(BaseModel):
@@ -467,7 +469,7 @@ async def json_version(task_id: str):
 async def json_version(task_id: str):
     logging.info(
         f"Received request for /devtools/json/version with task_id: {task_id}")
-    logging.info(f"active_tasks: {active_tasks}")
+    logging.info(f"active_tasks: {taskManager.get_active_tasks}")
 
     port = await taskManager.get_task_port(task_id)
     return await get_websocket_version(port)

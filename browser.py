@@ -20,15 +20,14 @@ class BrowserWrapper:
         self.browser = browser
         self.playwright = playwright
 
-    def stop(self):
-        # TODO: kuoxin@ why bother close and stop?
+    async def stop(self):
         if self.browser:
             logging.info(f"Closing browser on port {self.port}...")
-            self.browser.close()
+            await self.browser.close()
             logging.info(f"Browser on port {self.port} closed successfully")
         if self.playwright:
             logging.info(f"Closing playwright session {self.port}...")
-            self.playwright.stop()
+            await self.playwright.stop()
             logging.info(
                 f"Paywright session on port {self.port} closed successfully")
 

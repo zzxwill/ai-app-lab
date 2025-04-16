@@ -13,4 +13,7 @@ COPY browser_use /app/browser_use
 
 COPY index.py .
 COPY cdp.py .
+COPY utils.py .
+COPY browser.py .
+COPY task.py .
 CMD ["python", "index.py"]
