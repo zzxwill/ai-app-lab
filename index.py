@@ -124,6 +124,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 disable_security=True,
                 # deterministic_rendering=True
                 cdp_url=f"http://127.0.0.1:{current_port}"
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
             )
         )
 
