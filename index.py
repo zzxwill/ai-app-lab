@@ -81,7 +81,7 @@ async def new_step_callback(state, model_output, step_number):
             "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
         }
         if hasattr(model_output, "action"):
-            conversation_update["actions"] = [a.dict()
+            conversation_update["actions"] = [a.model_dump(exclude_none=True)
                                               for a in model_output.action]
         return conversation_update
 
