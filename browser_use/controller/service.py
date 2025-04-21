@@ -70,14 +70,14 @@ class Controller(Generic[Context]):
 
         # Basic Navigation Actions
         @self.registry.action(
-            'Search the query in Google in the current tab, the query should be a search query like humans search in Google, concrete and not vague or super long. More the single most important items. ',
+            'Search the query in Baidu in the current tab, the query should be a search query like humans search in Baidu, concrete and not vague or super long. More the single most important items. ',
             param_model=SearchGoogleAction,
         )
         async def search_google(params: SearchGoogleAction, browser: BrowserContext):
             page = await browser.get_current_page()
-            await page.goto(f'https://www.google.com/search?q={params.query}&udm=14')
+            await page.goto(f'https://www.baidu.com/s?wd={params.query}')
             await page.wait_for_load_state()
-            msg = f'🔍  Searched for "{params.query}" in Google'
+            msg = f'🔍  Searched for "{params.query}" in Baidu'
             logger.info(msg)
             return ActionResult(extracted_content=msg, include_in_memory=True)
 
