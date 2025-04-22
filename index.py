@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 from typing import AsyncGenerator
@@ -22,6 +23,15 @@ from task import TaskManager
 
 app = FastAPI()
 load_dotenv()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["x-faas-instance-name"],
+)
 
 llm_openai = "openai"
 llm_deepseek = "deepseek"
