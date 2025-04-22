@@ -355,30 +355,23 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             'failed_at': datetime.now().isoformat()
         })
     finally:
-        print("finally")
-        # agent.stop()
-        while not agent_task.done():
-            print("sleep")
-            await asyncio.sleep(0.1)
-            print("after sleep")
-        print("after while")
-        await agent_task
-        print("done")
-        polling_task.cancel()
-        try:
+        # some cleanup work
+        async def cleanup():
+            agent.stop()
+            await agent_task
+            polling_task.cancel()
             await polling_task
-        except asyncio.CancelledError:
-            pass
+            try:
+                if context:
+                    await context.close()
+                browser_cdp = taskManager.get_task_by_id(task_id)['browser']
+                if browser_cdp:
+                    await browser_cdp.stop()
+            except Exception as e:
+                logging.error(f"Failed to close browser/context: {str(e)}")
 
-        try:
-            # if context:
-            #     await context.close()
-            browser_cdp = taskManager.get_task_by_id(task_id)['browser']
-            if browser_cdp:
-                await browser_cdp.browser.close()
-                await browser_cdp.playwright.stop()
-        except Exception as e:
-            logging.error(f"Failed to close browser/context: {str(e)}")
+        # put cleanup in a new task so it won't block the main loop
+        asyncio.create_task(cleanup())
 
 
 class Message(BaseModel):
