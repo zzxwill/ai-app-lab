@@ -9,13 +9,13 @@ from dotenv import load_dotenv
 from datetime import datetime
 import os
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 from typing import AsyncGenerator
 import uvicorn
-from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
+from cdp import get_websocket_version
 from utils import enforce_log_format, check_llm_config
 from browser import start_browser
 from task import TaskManager
@@ -262,24 +262,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 for history_item in result.history
             ]
 
-        # yield format_sse({
-        #     "task_id": task_id,
-        #     "status": "completed",
-        #     "metadata": {
-        #         "type": "screentshot_gif_path",
-        #         "data": gif_dir
-        #     }
-        # })
-
-        # yield format_sse({
-        #     "task_id": task_id,
-        #     "status": "completed",
-        #     "metadata": {
-        #         "type": "recording_path",
-        #         "data": recording_dir
-        #     }
-        # })
-
         # task completed
         yield format_sse({
             "task_id": task_id,
@@ -382,25 +364,6 @@ async def run(request: Messages):
     }
 
 
-@app.get("/tasks")
-async def list_tasks():
-    """Endpoint to list all active and recent tasks"""
-    return {
-        "active_tasks": taskManager.get_active_tasks(),
-        "queue_size": taskManager.get_num_of_tasks(),
-    }
-
-
-@app.get("/tasks/{task_id}")
-async def get_task_status(task_id: str):
-    """Endpoint to get status of a specific task"""
-    task = taskManager.get_task_by_id(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    return task
-
-
 @app.get("/tasks/{task_id}/stream")
 async def stream_task_results(task_id: str):
     """Stream results for a specific task"""
@@ -417,22 +380,6 @@ async def stream_task_results(task_id: str):
     return StreamingResponse(result_generator(), media_type="text/event-stream")
 
 
-@app.get("/tasks/{task_id}/devtools/json/list")
-async def json_list(task_id: str):
-    port = await taskManager.get_task_port(task_id)
-    return await get_websocket_targets(port)
-
-
-@app.get("/devtools/json/version")
-async def json_version(task_id: str):
-    logging.info(
-        f"Received request for /devtools/json/version with task_id: {task_id}")
-    logging.info(f"active_tasks: {taskManager.get_active_tasks()}")
-
-    port = await taskManager.get_task_port(task_id)
-    return await get_websocket_version(port)
-
-
 @app.get("/tasks/{task_id}/devtools/json/version")
 async def json_version(task_id: str):
     logging.info(
@@ -441,33 +388,6 @@ async def json_version(task_id: str):
 
     port = await taskManager.get_task_port(task_id)
     return await get_websocket_version(port)
-
-
-@app.websocket("/tasks/{task_id}/devtools/page/{page_id}")
-async def cdp_websocket(websocket: WebSocket, task_id: str, page_id: str):
-    logging.info(
-        f"Received request for /devtools/page/{page_id}?task_id={task_id}")
-
-    port = await taskManager.get_task_port(task_id, websocket)
-    if port is None:
-        return
-
-    await websocket_endpoint(websocket, page_id, port)
-
-
-@app.websocket("/devtools/browser/{browser_id}")
-async def cdp_websocket_browser(websocket: WebSocket, browser_id: str):
-    query_params = dict(websocket.query_params)
-    task_id = query_params.get("task_id")
-    logging.info(
-        f"Received request for /devtools/browser/{browser_id}?task_id={task_id}")
-
-    port = await taskManager.get_task_port(task_id, websocket)
-    if port is None:
-        return
-
-    await websocket_browser_endpoint(websocket, browser_id, port)
-
 
 @app.websocket("/tasks/{task_id}/devtools/browser/{browser_id}")
 async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: str):
@@ -479,11 +399,6 @@ async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: 
         return
 
     await websocket_browser_endpoint(websocket, browser_id, port)
-
-
-@app.get("/tasks/{task_id}/devtools/inspector.html")
-async def inspector(request: Request):
-    return await get_inspector(request.url)
 
 
 if __name__ == "__main__":
