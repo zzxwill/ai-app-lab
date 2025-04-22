@@ -375,7 +375,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             #     await context.close()
             browser_cdp = taskManager.get_task_by_id(task_id)['browser']
             if browser_cdp:
-                await browser_cdp.stop()
+                await browser_cdp.browser.close()
+                await browser_cdp.playwright.stop()
         except Exception as e:
             logging.error(f"Failed to close browser/context: {str(e)}")
 
