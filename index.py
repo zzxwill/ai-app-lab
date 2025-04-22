@@ -1,7 +1,6 @@
-from time import time
 import uuid
 from langchain_openai import ChatOpenAI
-from browser_use import Agent, BrowserContextConfig, SystemPrompt
+from browser_use import Agent, BrowserContextConfig
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
 import asyncio
@@ -10,17 +9,13 @@ from dotenv import load_dotenv
 from datetime import datetime
 import os
 from pathlib import Path
-import base64
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import json
 from typing import AsyncGenerator
 import uvicorn
-from playwright.async_api import async_playwright
 from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
-from urllib.parse import urlparse
-import aiohttp
 from utils import enforce_log_format, check_llm_config
 from browser import start_browser
 from task import TaskManager
@@ -45,32 +40,6 @@ def format_sse(data: dict) -> str:
     """Format data as SSE message"""
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
-
-
-async def snapshot_polling(browser_ctx, interval=5.0) -> AsyncGenerator:
-    base_dir = "videos"
-    snapshot_dir = os.path.join(base_dir, "snapshots")
-    Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
-    try:
-        counter = 0
-        while True:
-            try:
-                counter += 1
-                screenshot = await browser_ctx.take_screenshot()
-                yield screenshot
-
-                filename = f"polling_snapshot_{counter:03d}.png"
-                filepath = os.path.join(snapshot_dir, filename)
-                with open(filepath, "wb") as f:
-                    f.write(base64.b64decode(screenshot))
-
-            except Exception as e:
-                pass
-
-            await asyncio.sleep(interval)
-    except asyncio.CancelledError:
-        pass
-
 
 async def new_step_callback(state, model_output, step_number):
     if model_output:
@@ -190,19 +159,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             nonlocal sse_queue
             await sse_queue.put(message)
         sse_queue = asyncio.Queue()
-
-        # screenshot polling task
-        async def polling_task_wrapper(context):
-            async for screenshot in snapshot_polling(context):
-                sse_message = format_sse({
-                    "task_id": task_id,
-                    "status": "polling_snapshot",
-                    "metadata": {
-                        "type": "browser_live_screenshot_base64",
-                        "data": screenshot,
-                    }})
-                await send_sse_message(sse_message)
-        polling_task = asyncio.create_task(polling_task_wrapper(context))
 
         # the real browser-use agent
         logging.info(
@@ -359,8 +315,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         async def cleanup():
             agent.stop()
             await agent_task
-            polling_task.cancel()
-            await polling_task
             try:
                 if context:
                     await context.close()
