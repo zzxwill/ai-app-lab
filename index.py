@@ -16,7 +16,7 @@ import json
 from typing import AsyncGenerator
 import uvicorn
 from cdp import get_websocket_version
-from utils import enforce_log_format, check_llm_config
+from utils import enforce_log_format, check_llm_config, ModelLoggingCallback
 from browser import start_browser
 from task import TaskManager
 
@@ -40,6 +40,7 @@ def format_sse(data: dict) -> str:
     """Format data as SSE message"""
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
+
 
 async def new_step_callback(state, model_output, step_number):
     if model_output:
@@ -191,7 +192,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         model=os.getenv("ARK_MODEL_ID"),
                         api_key=os.getenv("ARK_API_KEY"),
                         default_headers={
-                            "X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                            "X-Client-Request-Id": "vefaas-browser-use-20250403"},
+                        callbacks=[ModelLoggingCallback()],
                     ),
                     page_extraction_llm=ChatOpenAI(
                         base_url="https://ark.cn-beijing.volces.com/api/v3",
@@ -388,6 +390,7 @@ async def json_version(task_id: str):
 
     port = await taskManager.get_task_port(task_id)
     return await get_websocket_version(port)
+
 
 @app.websocket("/tasks/{task_id}/devtools/browser/{browser_id}")
 async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: str):
