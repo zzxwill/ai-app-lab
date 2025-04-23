@@ -13,6 +13,10 @@ class TaskManager:
         # TODO: kuoxin@ refine this logic with a task object
         self.active_tasks[task_id].update(task)
 
+    def remove_task(self, task_id: str):
+        if task_id in self.active_tasks:
+            del self.active_tasks[task_id]
+
     def get_active_tasks(self) -> dict:
         # TODO: kuoxin@ refine this logic with a task object
         return self.active_tasks

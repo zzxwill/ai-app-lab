@@ -23,6 +23,11 @@ class BrowserWrapper:
     async def stop(self):
         if self.browser:
             logging.info(f"Closing browser on port {self.port}...")
+            try:
+                for context in self.browser.contexts:
+                    await context.close()
+            except Exception as e:
+                logging.error(f"Error closing contexts: {e}")
             await self.browser.close()
             logging.info(f"Browser on port {self.port} closed successfully")
         if self.playwright:
@@ -40,6 +45,8 @@ async def start_browser(port):
     try:
         p = await async_playwright().start()
 
+        w = BrowserWrapper(port, None, p)
+
         try:
             browser = await p.chromium.launch(
                 headless=True,
@@ -50,6 +57,8 @@ async def start_browser(port):
                     '--no-sandbox'
                 ]
             )
+
+            w = BrowserWrapper(port, browser, p)
 
             logging.info(f"Browser launched successfully on port {port}")
 
@@ -66,6 +75,10 @@ async def start_browser(port):
                                 f"Failed to get CDP version. Status: {response.status}")
             except Exception as cdp_e:
                 logging.error(f"Error checking CDP availability: {cdp_e}")
+
+                logging.info('closing playwright driver and browser')
+                await w.stop()
+                raise
 
             # await asyncio.sleep(500)
             # Create a global event to signal browser is ready
@@ -119,20 +132,14 @@ async def start_browser(port):
         except Exception as launch_e:
             logging.error(f"Failed to launch browser: {launch_e}")
             browser_ready_event.clear()
+
+            logging.info('closing playwright driver and browser')
+            await w.stop()
             raise
     except Exception as p_e:
         logging.error(f"Playwright initialization error: {p_e}")
         browser_ready_event.clear()
-        try:
-            if browser:
-                logging.info(f"Closing browser on port {port}...")
-                await browser.close()
-                logging.info(f"Browser on port {port} closed successfully")
-
-            if p:
-                await p.stop()
-                logging.info(
-                    f"Playwright for browser on port {port} stopped successfully")
-        except Exception as stop_e:
-            logging.error(f"Error stopping browser/playwright: {stop_e}")
+        
+        logging.info('closing playwright driver and browser')
+        await w.stop()
         raise
