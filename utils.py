@@ -86,6 +86,10 @@ class ModelLoggingCallback(BaseCallbackHandler):
         logging.info(
             f"[Model] Chat model ended, response: {response}")
 
+    def on_llm_error(self, error: BaseException, **kwargs) -> Any:
+        logging.info(
+            f"[Model] Chat model error, response: {error}")
+
     def on_chain_start(
         self, serialized: Dict[str, Any], inputs: Dict[str, Any], **kwargs
     ) -> None:
