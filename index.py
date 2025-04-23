@@ -17,6 +17,9 @@ from typing import AsyncGenerator
 import uvicorn
 from cdp import get_websocket_version
 from utils import enforce_log_format, check_llm_config, ModelLoggingCallback
+from contextlib import asynccontextmanager
+from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
+from utils import enforce_log_format, check_llm_config
 from browser import start_browser
 from task import TaskManager
 
@@ -227,6 +230,12 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'error': f"Agent creation failed: {str(e)}",
                 'failed_at': datetime.now().isoformat()
             })
+
+            logging.info('closing playwright driver and browser')
+            browser_cdp = taskManager.get_task_by_id(task_id)['browser']
+            if browser_cdp:
+                await browser_cdp.stop()
+
             return
 
         yield format_sse({"task_id": task_id, "status": "agent_initialized"})
@@ -404,7 +413,61 @@ async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: 
     await websocket_browser_endpoint(websocket, browser_id, port)
 
 
+async def cleanup_stale_tasks():
+    logging.info("Starting stale task cleanup service")
+    
+    while True:
+        try:
+            current_time = datetime.now()
+            stale_tasks = []
+            
+            # Find all queued tasks that are older than 5 minutes
+            for task_id, task_info in taskManager.get_active_tasks().items():
+                if task_info.get('status') == 'queued':
+                    created_at = datetime.fromisoformat(task_info.get('created_at', ''))
+                    time_diff = (current_time - created_at).total_seconds()
+                    
+                    # If task has been queued for more than 5 minutes
+                    if time_diff > 300:  # 300 seconds = 5 minutes
+                        stale_tasks.append(task_id)
+            
+            # Clean up each stale task
+            for task_id in stale_tasks:
+                logging.warning(f"Cleaning up stale queued task: {task_id}")
+                task_info = taskManager.get_task_by_id(task_id)
+                
+                if task_info and 'browser' in task_info:
+                    browser_instance = task_info['browser']
+                    if browser_instance:
+                        try:
+                            logging.info(f"Closing browser for stale task: {task_id}")
+                            await browser_instance.stop()
+                        except Exception as e:
+                            logging.error(f"Error closing browser for stale task {task_id}: {e}")
+                
+                taskManager.remove_task(task_id)
+                
+                logging.info(f"Stale task {task_id} cleaned up")
+        
+        except Exception as e:
+            logging.error(f"Error in stale task cleanup: {e}")
+        
+        await asyncio.sleep(60)
+
+
 if __name__ == "__main__":
     llm_name = check_llm_config()
     enforce_log_format()
+    
+    @asynccontextmanager
+    async def lifespan(app):
+        cleanup_task = asyncio.create_task(cleanup_stale_tasks())
+        app.state.cleanup_task = cleanup_task
+        logging.info("Stale task cleanup service started")
+        yield
+        if not cleanup_task.done():
+            cleanup_task.cancel()
+    
+    app.router.lifespan_context = lifespan
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)
