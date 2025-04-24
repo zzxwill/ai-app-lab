@@ -1,28 +1,28 @@
+import asyncio
+import json
+import logging
+import os
 import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import AsyncGenerator
+
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
+
+from browser import start_browser
 from browser_use import Agent, BrowserContextConfig
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
-import asyncio
-import logging
-from dotenv import load_dotenv
-from datetime import datetime
-import os
-from pathlib import Path
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import json
-from typing import AsyncGenerator
-import uvicorn
-from cdp import get_websocket_version
-from utils import enforce_log_format, check_llm_config, ModelLoggingCallback
-from contextlib import asynccontextmanager
-from cdp import websocket_endpoint, websocket_browser_endpoint, get_websocket_targets, get_websocket_version, get_inspector
-from utils import enforce_log_format, check_llm_config
-from browser import start_browser
+from cdp import get_websocket_version, websocket_browser_endpoint
 from task import TaskManager
+from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
 
 app = FastAPI()
 load_dotenv()
@@ -78,27 +78,25 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
     agent = None
     agent_task = None
 
+    # setup a message queue to pass intermediate result
+    sse_queue = asyncio.Queue()
+
+    async def send_sse_message(message):
+        nonlocal sse_queue
+        await sse_queue.put(message)
+
     # Send initial status and update task
     taskManager.update_task(task_id, {
         'status': 'starting',
         'started_at': datetime.now().isoformat()
     })
-    yield format_sse({"task_id": task_id, "status": "started"})
+    await send_sse_message(format_sse({"task_id": task_id, "status": "started"}))
 
     base_dir = "videos"
     base_dir = os.path.join(base_dir, task_id)
 
     snapshot_dir = os.path.join(base_dir, "snapshots")
     Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
-
-    # gif_dir = os.path.join(base_dir, "gif")
-    # Path(gif_dir).mkdir(parents=True, exist_ok=True)
-
-    # recording_dir = os.path.join(base_dir, "recording")
-    # Path(recording_dir).mkdir(parents=True, exist_ok=True)
-
-    # trace_dir = os.path.join(base_dir, "trace")
-    # Path(trace_dir).mkdir(parents=True, exist_ok=True)
 
     try:
         browser = Browser(
@@ -110,7 +108,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             )
         )
 
-        yield format_sse({"task_id": task_id, "status": "browser_initialized"})
+        await send_sse_message(format_sse({"task_id": task_id, "status": "browser_initialized"}))
         taskManager.update_task(task_id, {
             'status': 'browser_initialized',
             'last_update': datetime.now().isoformat()
@@ -119,9 +117,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             f"[{task_id}] Browser initialized on port {current_port}")
 
         config = BrowserContextConfig(
-            # save_recording_path=recording_dir,
-            # save_downloads_path=os.path.join(base_dir, "download"),
-            # trace_path=os.path.join(trace_dir, f"{task_id}.zip"),
             highlight_elements=False,
         )
 
@@ -147,7 +142,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     }
                 }
             )
-            asyncio.create_task(send_sse_message(conv_message))
+            await send_sse_message(conv_message)
 
         async def new_step_callback_wrapper(state, model_output, step_number):
             conversation_update = await new_step_callback(state, model_output, step_number)
@@ -166,13 +161,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     }
                 }
             )
-            asyncio.create_task(send_sse_message(conv_message))
-
-        # setup a message queue to pass intermediate result
-        async def send_sse_message(message):
-            nonlocal sse_queue
-            await sse_queue.put(message)
-        sse_queue = asyncio.Queue()
+            await send_sse_message(conv_message)
 
         # the real browser-use agent
         logging.info(
@@ -186,8 +175,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     llm=ChatOpenAI(model="gpt-4o"),
                     use_vision=True,
                     browser_context=context,
-                    # save_conversation_path=os.path.join(base_dir, "conversation"),
-                    # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                     register_new_step_callback=new_step_callback_wrapper,
                 )
             elif llm_name == llm_ark:
@@ -196,18 +183,17 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 # It's a workaround as ChatOpenAI will check the api key
                 os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
+                llmOpenAI = ChatOpenAI(
+                    base_url="https://ark.cn-beijing.volces.com/api/v3",
+                    model=os.getenv("ARK_MODEL_ID"),
+                    api_key=os.getenv("ARK_API_KEY"),
+                    default_headers={
+                        "X-Client-Request-Id": "vefaas-browser-use-20250403"},
+                    callbacks=[ModelLoggingCallback()],
+                )
                 agent = Agent(
                     task=task,
-                    initial_actions=[
-                        {"go_to_url": {"url": "https://baidu.com"}}],
-                    llm=ChatOpenAI(
-                        base_url="https://ark.cn-beijing.volces.com/api/v3",
-                        model=os.getenv("ARK_MODEL_ID"),
-                        api_key=os.getenv("ARK_API_KEY"),
-                        default_headers={
-                            "X-Client-Request-Id": "vefaas-browser-use-20250403"},
-                        callbacks=[ModelLoggingCallback()],
-                    ),
+                    llm=llmOpenAI,
                     page_extraction_llm=ChatOpenAI(
                         base_url="https://ark.cn-beijing.volces.com/api/v3",
                         model=os.getenv("ARK_EXTRACT_MODEL_ID"),
@@ -220,8 +206,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     tool_calling_method=os.getenv(
                         "ARK_FUNCTION_CALLING", "raw").lower(),
                     browser_context=context,
-                    # save_conversation_path=os.path.join(base_dir, "conversation"),
-                    # generate_gif=os.path.join(gif_dir, "screenshots.gif"),
                     register_new_step_callback=new_step_callback_wrapper,
                     register_new_progress_callback=new_progress_callback
                 )
@@ -248,7 +232,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
 
             return
 
-        yield format_sse({"task_id": task_id, "status": "agent_initialized"})
+        await send_sse_message(format_sse({"task_id": task_id, "status": "agent_initialized"}))
         taskManager.update_task(task_id, {
             'status': 'agent_initialized',
             'last_update': datetime.now().isoformat()
@@ -326,7 +310,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     await browser_cdp.stop()
             except Exception as e:
                 logging.error(f"Failed to close browser/context: {str(e)}")
-
         # put cleanup in a new task so it won't block the main loop
         asyncio.create_task(cleanup())
 
@@ -370,12 +353,28 @@ async def run(request: Messages):
     current_port = CURRENT_CDP_PORT
 
     browser = await start_browser(current_port)
+
+    message_queue = asyncio.Queue()
+
+    async def run_task_wrapper():
+        task_info = taskManager.get_task_by_id(task_id)
+        async for result in run_task(task_info['prompt'], task_id, current_port):
+            await message_queue.put(format_sse({
+                "task_id": task_id,
+                "data": result
+            }))
+        # Using a None item indicate queue shutdown
+        await message_queue.put(None)
+
+    asyncio.create_task(run_task_wrapper())
+
     taskManager.add_task(task_id, {
         'prompt': prompt,
         'port': current_port,
         'status': 'queued',
         'created_at': datetime.now().isoformat(),
         'browser': browser,
+        'message_queue': message_queue,
     })
 
     # Return task ID immediately
@@ -388,17 +387,22 @@ async def run(request: Messages):
 @app.get("/tasks/{task_id}/stream")
 async def stream_task_results(task_id: str):
     """Stream results for a specific task"""
-    port = await taskManager.get_task_port(task_id)
+    message_queue: asyncio.Queue = taskManager.get_task_by_id(task_id)[
+        'message_queue']
 
-    async def result_generator():
-        task_info = taskManager.get_task_by_id(task_id)
-        async for result in run_task(task_info['prompt'], task_id, port):
-            yield format_sse({
-                "task_id": task_id,
-                "data": result
-            })
+    async def running_task_generator():
+        while True:
+            try:
+                message = await message_queue.get()
+                # Using a None element indicating queue shutdown
+                if message == None:
+                    break
+                yield message
+            except asyncio.CancelledError:
+                # request canceled from client side
+                break
 
-    return StreamingResponse(result_generator(), media_type="text/event-stream")
+    return StreamingResponse(running_task_generator(), media_type="text/event-stream")
 
 
 @app.get("/tasks/{task_id}/devtools/json/version")
@@ -425,49 +429,53 @@ async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: 
 
 async def cleanup_stale_tasks():
     logging.info("Starting stale task cleanup service")
-    
+
     while True:
         try:
             current_time = datetime.now()
             stale_tasks = []
-            
+
             # Find all queued tasks that are older than 5 minutes
             for task_id, task_info in taskManager.get_active_tasks().items():
                 if task_info.get('status') == 'queued':
-                    created_at = datetime.fromisoformat(task_info.get('created_at', ''))
+                    created_at = datetime.fromisoformat(
+                        task_info.get('created_at', ''))
                     time_diff = (current_time - created_at).total_seconds()
-                    
+
+                    # If task has been queued for a hour
                     if time_diff > 3600:
                         stale_tasks.append(task_id)
-            
+
             # Clean up each stale task
             for task_id in stale_tasks:
                 logging.warning(f"Cleaning up stale queued task: {task_id}")
                 task_info = taskManager.get_task_by_id(task_id)
-                
+
                 if task_info and 'browser' in task_info:
                     browser_instance = task_info['browser']
                     if browser_instance:
                         try:
-                            logging.info(f"Closing browser for stale task: {task_id}")
+                            logging.info(
+                                f"Closing browser for stale task: {task_id}")
                             await browser_instance.stop()
                         except Exception as e:
-                            logging.error(f"Error closing browser for stale task {task_id}: {e}")
-                
+                            logging.error(
+                                f"Error closing browser for stale task {task_id}: {e}")
+
                 taskManager.remove_task(task_id)
-                
+
                 logging.info(f"Stale task {task_id} cleaned up")
-        
+
         except Exception as e:
             logging.error(f"Error in stale task cleanup: {e}")
-        
+
         await asyncio.sleep(60)
 
 
 if __name__ == "__main__":
     llm_name = check_llm_config()
     enforce_log_format()
-    
+
     @asynccontextmanager
     async def lifespan(app):
         cleanup_task = asyncio.create_task(cleanup_stale_tasks())
@@ -476,7 +484,7 @@ if __name__ == "__main__":
         yield
         if not cleanup_task.done():
             cleanup_task.cancel()
-    
+
     app.router.lifespan_context = lifespan
-    
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

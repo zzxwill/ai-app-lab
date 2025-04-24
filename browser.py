@@ -1,16 +1,11 @@
-import logging
-import aiohttp
 import asyncio
-from playwright.async_api import async_playwright
+import logging
+
+import aiohttp
 from playwright._impl._browser import Browser
+from playwright.async_api import async_playwright
 from playwright.async_api._generated import Playwright as AsyncPlaywright
 
-# TODO kuoxin@: delete this
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
 browser_ready_event = asyncio.Event()
 
 
@@ -79,54 +74,6 @@ async def start_browser(port):
                 logging.info('closing playwright driver and browser')
                 await w.stop()
                 raise
-
-            # await asyncio.sleep(500)
-            # Create a global event to signal browser is ready
-            # browser_ready_event.set()
-
-            # task_id = None
-            # for tid, task in active_tasks.items():
-            #     if task.get('port') == port:
-            #         task_id = tid
-            #         break
-
-            # if task_id:
-            #     active_tasks[task_id]['browser_instance'] = browser
-            #     active_tasks[task_id]['playwright_instance'] = p
-
-            # # Keep the browser running until the task is done
-            # while True:
-            #     is_active = False
-            #     for tid, task in active_tasks.items():
-            #         if task.get('port') == port and task.get('status') not in ['completed', 'failed']:
-            #             logging.info(
-            #                 f"kuoxin@ task status { task.get('status')}")
-            #             is_active = True
-            #             break
-
-            #     if not is_active:
-            #         logging.info(
-            #             f"No active tasks for browser on port {port}, shutting down")
-            #         break
-
-            #     try:
-            #         # Basic health check
-            #         contexts = browser.contexts
-            #         logging.debug(f"Active contexts: {len(contexts)}")
-
-            #         # Periodic check of CDP availability
-            #         async with aiohttp.ClientSession() as session:
-            #             async with session.get(f"http://127.0.0.1:{port}/json/list", timeout=5) as response:
-            #                 if response.status != 200:
-            #                     logging.warning(
-            #                         f"CDP endpoint not responding on port {port}")
-
-            #         await asyncio.sleep(5)
-
-            #     except Exception as health_e:
-            #         logging.error(
-            #             f"Browser health check error: {health_e}")
-            #         break
             return BrowserWrapper(port, browser, p)
 
         except Exception as launch_e:
@@ -139,7 +86,7 @@ async def start_browser(port):
     except Exception as p_e:
         logging.error(f"Playwright initialization error: {p_e}")
         browser_ready_event.clear()
-        
+
         logging.info('closing playwright driver and browser')
         await w.stop()
         raise
