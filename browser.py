@@ -23,11 +23,11 @@ class BrowserWrapper:
     async def stop(self):
         if self.browser:
             logging.info(f"Closing browser on port {self.port}...")
-            try:
-                for context in self.browser.contexts:
-                    await context.close()
-            except Exception as e:
-                logging.error(f"Error closing contexts: {e}")
+            # try:
+            #     for context in self.browser.contexts:
+            #         await context.close()
+            # except Exception as e:
+            #     logging.error(f"Error closing contexts: {e}")
             await self.browser.close()
             logging.info(f"Browser on port {self.port} closed successfully")
         if self.playwright:
