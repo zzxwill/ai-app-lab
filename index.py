@@ -437,8 +437,7 @@ async def cleanup_stale_tasks():
                     created_at = datetime.fromisoformat(task_info.get('created_at', ''))
                     time_diff = (current_time - created_at).total_seconds()
                     
-                    # If task has been queued for more than 5 minutes
-                    if time_diff > 300:  # 300 seconds = 5 minutes
+                    if time_diff > 3600:
                         stale_tasks.append(task_id)
             
             # Clean up each stale task
