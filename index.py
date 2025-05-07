@@ -20,6 +20,7 @@ from browser import start_browser
 from browser_use import Agent, BrowserContextConfig
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from system_prompt import SystemPromptDecorator
 from cdp import get_websocket_version, websocket_browser_endpoint
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
@@ -207,7 +208,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         "ARK_FUNCTION_CALLING", "raw").lower(),
                     browser_context=context,
                     register_new_step_callback=new_step_callback_wrapper,
-                    register_new_progress_callback=new_progress_callback
+                    register_new_progress_callback=new_progress_callback,
+                    system_prompt_class=SystemPromptDecorator.create_system_prompt_class(
+                        class_name="ChineseLangPromptDecorator",
+                        content="输出语言限制：中文",
+                    ),
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
