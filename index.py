@@ -20,6 +20,7 @@ from browser import start_browser
 from browser_use import Agent, BrowserContextConfig
 from browser_use.browser.browser import Browser, BrowserConfig
 from browser_use.browser.context import BrowserContext
+from system_prompt import SystemPromptDecorator
 from cdp import get_websocket_version, websocket_browser_endpoint
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
@@ -191,23 +192,30 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         "X-Client-Request-Id": "vefaas-browser-use-20250403"},
                     callbacks=[ModelLoggingCallback()],
                 )
+                extract_llm = ChatOpenAI(
+                    base_url="https://ark.cn-beijing.volces.com/api/v3",
+                    model=os.getenv("ARK_EXTRACT_MODEL_ID"),
+                    api_key=os.getenv("ARK_API_KEY"),
+                    default_headers={
+                        "X-Client-Request-Id": "vefaas-browser-use-20250403"}
+                )
                 agent = Agent(
                     task=task,
                     llm=llmOpenAI,
-                    page_extraction_llm=ChatOpenAI(
-                        base_url="https://ark.cn-beijing.volces.com/api/v3",
-                        model=os.getenv("ARK_EXTRACT_MODEL_ID"),
-                        api_key=os.getenv("ARK_API_KEY"),
-                        default_headers={
-                            "X-Client-Request-Id": "vefaas-browser-use-20250403"}
-                    ),
+                    page_extraction_llm=extract_llm,
                     use_vision=os.getenv(
                         "ARK_USE_VISION", "False").lower() == "true",
                     tool_calling_method=os.getenv(
                         "ARK_FUNCTION_CALLING", "raw").lower(),
                     browser_context=context,
                     register_new_step_callback=new_step_callback_wrapper,
-                    register_new_progress_callback=new_progress_callback
+                    register_new_progress_callback=new_progress_callback,
+                    system_prompt_class=SystemPromptDecorator.create_system_prompt_class(
+                        class_name="ChineseLangPromptDecorator",
+                        content="输出语言限制：中文",
+                    ),
+                    # use_vision_for_planner=True,
+                    planner_llm=extract_llm,
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
