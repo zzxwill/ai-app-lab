@@ -1,29 +1,34 @@
 import asyncio
+from contextlib import asynccontextmanager
+from datetime import datetime
+import http
 import json
 import logging
 import os
-import uuid
-from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator
+import uuid
 
-import uvicorn
+from browser_use import Agent
+from browser_use.browser.browser import BrowserProfile, BrowserSession
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
+import uvicorn
 
 from browser import start_browser
-from browser_use import Agent, BrowserContextConfig
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
-from system_prompt import SystemPromptDecorator
 from cdp import get_websocket_version, websocket_browser_endpoint
+from my_browser_use.agent.prompts import load_system_prompt, load_planner_prompt
+from my_browser_use.controller.service import MyController
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
+
+from browser_use.agent.views import (
+	AgentOutput,
+)
 
 app = FastAPI()
 load_dotenv()
@@ -55,27 +60,32 @@ def format_sse(data: dict) -> str:
     message = f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
     return message
 
-
-async def new_step_callback(state, model_output, step_number):
+async def gen_step_callback_result(model_output: AgentOutput, step_number: int):
     if model_output:
         conversation_update = {
             "step": step_number-1,  # need to minus 1 to refect actual step number
             "goal": model_output.current_state.next_goal if hasattr(model_output.current_state, "next_goal") else "",
             "memory": model_output.current_state.memory if hasattr(model_output.current_state, "memory") else "",
             "evaluation": model_output.current_state.evaluation_previous_goal if hasattr(model_output.current_state, "evaluation_previous_goal") else "",
+            "task_status": "running",
+            "actions": [],
         }
         if hasattr(model_output, "action"):
-            conversation_update["actions"] = [a.model_dump(exclude_none=True)
-                                              for a in model_output.action]
-        return conversation_update
+            actions = []
+            for a in model_output.action:
+                actions.append(a.model_dump(exclude_none=True))
+                # pause agent if pause action is found
+                if a.pause:
+                    conversation_update["task_status"] = "paused"
+            conversation_update['actions'] = actions
 
+        return conversation_update
 
 async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
     logging.info(
         f"[{task_id}] Starting task with prompt: '{task}', CDP port: {current_port}")
 
-    browser = None
-    context = None
+    browser_session = None
     agent = None
     agent_task = None
 
@@ -100,13 +110,14 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
     Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
 
     try:
-        browser = Browser(
-            config=BrowserConfig(
-                headless=True,
-                disable_security=True,
-                # deterministic_rendering=True
-                cdp_url=f"http://127.0.0.1:{current_port}"
-            )
+        browser_profile = BrowserProfile(
+            headless=True,
+            disable_security=True,
+            highlight_elements=False,
+        )
+        browser_session = BrowserSession(
+            browser_profile=browser_profile,
+            cdp_url=f"http://127.0.0.1:{current_port}",
         )
 
         await send_sse_message(format_sse({"task_id": task_id, "status": "browser_initialized"}))
@@ -117,16 +128,76 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         logging.info(
             f"[{task_id}] Browser initialized on port {current_port}")
 
-        config = BrowserContextConfig(
-            highlight_elements=False,
-        )
+        async def new_step_callback_wrapper(browser_state_summary, model_output, step_number):
+            conversation_update = await gen_step_callback_result(model_output, step_number)
+            if conversation_update["task_status"] == "paused":
+                logging.info("Pausing agent due to pause action")
+                agent.pause()
 
-        context = BrowserContext(
-            browser=browser,
-            config=config
-        )
+                # Schedule a timeout to stop the agent if it's still paused after 1 minute
+                async def delayed_stop():
+                    await asyncio.sleep(60)  # 60 seconds
+                    msg = "Task auto-stopped after 1 minute in paused state"
+                    if agent.state.paused:
+                        timeout_msg = format_sse({
+                            "task_id": task_id,
+                            "status": "error",
+                            "metadata": {
+                                "type": "message",
+                                "data": {
+                                    "message": msg
+                                 }
+                            }
+                        })
+                        await send_sse_message(timeout_msg)
+                        agent.stop()
+                        taskManager.update_task(task_id, {
+                            "status": "failed",
+                            "error": msg,
+                            'failed_at': datetime.now().isoformat()
+                        })
+                        logging.info('closing playwright driver and browser')
+                        browser_cdp = taskManager.get_task_by_id(task_id)['browser']
+                        if browser_cdp:
+                            await browser_cdp.stop()
+                        logging.info("Agent auto-stopped due to timeout")
 
-        async def new_progress_callback(msg: str):
+                asyncio.create_task(delayed_stop())
+                
+            # Update active_tasks with current step and goal
+            taskManager.update_task(task_id, {
+                'status': conversation_update["task_status"],
+            })
+            # Create and send conversation update without yielding
+            conv_message = format_sse(
+                {
+                    "task_id": task_id,
+                    "status": "conversation_update",
+                    "metadata": {
+                        "type": "planning_step",
+                        "data": conversation_update
+                    }
+                }
+            )
+            await send_sse_message(conv_message)
+
+            for i, action in enumerate(conversation_update['actions']):
+                # Create and send conversation update without yielding
+                action_message = format_sse(
+                    {
+                        "task_id": task_id,
+                        "status": "conversation_update",
+                        "metadata": {
+                            "type": "message",
+                            "data": {
+                                "message": f"Taken action #{i+1}: {action}"
+                            }
+                        }
+                    }
+                )
+                await send_sse_message(action_message)
+
+        async def on_step_start(agent):
             taskManager.update_task(task_id, {
                 'status': 'running',
             })
@@ -138,27 +209,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     "metadata": {
                         "type": "message",
                         "data": {
-                            "message": msg
+                            "message": "Starting new step..."
                         }
-                    }
-                }
-            )
-            await send_sse_message(conv_message)
-
-        async def new_step_callback_wrapper(state, model_output, step_number):
-            conversation_update = await new_step_callback(state, model_output, step_number)
-            # Update active_tasks with current step and goal
-            taskManager.update_task(task_id, {
-                'status': 'running',
-            })
-            # Create and send conversation update without yielding
-            conv_message = format_sse(
-                {
-                    "task_id": task_id,
-                    "status": "conversation_update",
-                    "metadata": {
-                        "type": "planning_step",
-                        "data": conversation_update
                     }
                 }
             )
@@ -175,7 +227,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     task=task,
                     llm=ChatOpenAI(model="gpt-4o"),
                     use_vision=True,
-                    browser_context=context,
+                    browser_session=browser_session,
                     register_new_step_callback=new_step_callback_wrapper,
                 )
             elif llm_name == llm_ark:
@@ -202,23 +254,27 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 agent = Agent(
                     task=task,
                     llm=llmOpenAI,
-                    page_extraction_llm=extract_llm,
-                    use_vision=os.getenv(
-                        "ARK_USE_VISION", "False").lower() == "true",
                     tool_calling_method=os.getenv(
                         "ARK_FUNCTION_CALLING", "raw").lower(),
-                    browser_context=context,
+                    browser_session=browser_session,
                     register_new_step_callback=new_step_callback_wrapper,
-                    register_new_progress_callback=new_progress_callback,
-                    system_prompt_class=SystemPromptDecorator.create_system_prompt_class(
-                        class_name="ChineseLangPromptDecorator",
-                        content="输出语言限制：中文",
-                    ),
-                    # use_vision_for_planner=True,
-                    planner_llm=extract_llm,
+                    # register_new_progress_callback=new_progress_callback,
+                    use_vision=os.getenv(
+                        "ARK_USE_VISION", "False").lower() == "true",
+                    use_vision_for_planner=os.getenv(
+                        "ARK_USE_VISION", "False").lower() == "true",
+                    planner_llm=llmOpenAI,
+                    page_extraction_llm=extract_llm,
+                    controller=MyController(),
+                    override_system_message=load_system_prompt(),
+                    extend_planner_system_message=load_planner_prompt(),
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
+            
+            taskManager.update_task(task_id, {
+                'agent': agent,
+            })
 
         except Exception as e:
             logging.error(f"Failed to create agent: {str(e)}")
@@ -248,7 +304,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         logging.info(f"[{task_id}] Agent initialized and ready to run")
 
         # Start the agent in a separate async task
-        agent_task = asyncio.create_task(agent.run(20))
+        agent_task = asyncio.create_task(agent.run(20, on_step_start=on_step_start))
         logging.info(f"[{task_id}] Agent started running")
 
         while not agent_task.done() or not sse_queue.empty():
@@ -311,8 +367,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             agent.stop()
             await agent_task
             try:
-                if context:
-                    await context.close()
+                if browser_session:
+                    await browser_session.close()
                 browser_cdp = taskManager.get_task_by_id(task_id)['browser']
                 if browser_cdp:
                     await browser_cdp.stop()
@@ -320,7 +376,6 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 logging.error(f"Failed to close browser/context: {str(e)}")
         # put cleanup in a new task so it won't block the main loop
         asyncio.create_task(cleanup())
-
 
 class Message(BaseModel):
     role: str
@@ -383,6 +438,7 @@ async def run(request: Messages):
         'created_at': datetime.now().isoformat(),
         'browser': browser,
         'message_queue': message_queue,
+        'agent': None,
     })
 
     # Return task ID immediately
@@ -412,6 +468,40 @@ async def stream_task_results(task_id: str):
 
     return StreamingResponse(running_task_generator(), media_type="text/event-stream")
 
+@app.post("/tasks/{task_id}/resume")
+async def resume_task(task_id: str):
+    """Resume a task that was previously paused"""
+    task_info = taskManager.get_task_by_id(task_id)
+    if not task_info:
+        raise HTTPException(status_code=http.HTTPStatus.NOT_FOUND, detail="Task not found")
+    if task_info['status'] != 'paused':
+        raise HTTPException(status_code=http.HTTPStatus.BAD_REQUEST, detail="Task is not paused")
+    agent: Agent = task_info["agent"]
+    if not agent:
+        raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail="Agent not found")
+    try:
+        agent.resume()
+        task_info['status'] = 'running'
+    except Exception as e:
+        if agent.state.paused == True:
+            logging.error(f"Failed to resume agent: {str(e)}")
+            raise
+    return JSONResponse(content={"message": "Task resumed successfully"})
+
+@app.post("/tasks/{task_id}/pause")
+async def pause_task(task_id: str):
+    """Pause a task that was previously running"""
+    task_info = taskManager.get_task_by_id(task_id)
+    if not task_info:
+        raise HTTPException(status_code=http.HTTPStatus.NOT_FOUND, detail="Task not found")
+    if task_info['status']!= 'running':
+        raise HTTPException(status_code=http.HTTPStatus.BAD_REQUEST, detail="Task is not running")
+    agent: Agent = task_info["agent"]
+    if not agent:
+        raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail="Agent not found")
+    agent.pause()
+    task_info['status'] = 'paused'
+    return JSONResponse(content={"message": "Task paused successfully"})
 
 @app.get("/tasks/{task_id}/devtools/json/version")
 async def json_version(task_id: str):

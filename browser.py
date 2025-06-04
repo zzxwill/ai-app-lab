@@ -2,8 +2,8 @@ import asyncio
 import logging
 
 import aiohttp
-from playwright._impl._browser import Browser
 from playwright.async_api import async_playwright
+from playwright.async_api import Browser
 from playwright.async_api._generated import Playwright as AsyncPlaywright
 
 browser_ready_event = asyncio.Event()
@@ -50,7 +50,7 @@ async def start_browser(port):
                     '--remote-allow-origins=*',
                     '--remote-debugging-address=0.0.0.0',
                     '--no-sandbox'
-                ]
+                ],
             )
 
             w = BrowserWrapper(port, browser, p)
