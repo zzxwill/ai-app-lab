@@ -114,6 +114,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             headless=True,
             disable_security=True,
             highlight_elements=False,
+            wait_between_actions=1,
         )
         browser_session = BrowserSession(
             browser_profile=browser_profile,
