@@ -129,6 +129,8 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         logging.info(
             f"[{task_id}] Browser initialized on port {current_port}")
 
+        # set pause counter, to stop agent if it's still paused after 1 minute
+        pause_counter = 0
         async def new_step_callback_wrapper(browser_state_summary, model_output, step_number):
             conversation_update = await gen_step_callback_result(model_output, step_number)
             if conversation_update["task_status"] == "paused":
@@ -137,9 +139,15 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
 
                 # Schedule a timeout to stop the agent if it's still paused after 1 minute
                 async def delayed_stop():
+                    nonlocal pause_counter
+                    pause_counter += 1
                     await asyncio.sleep(60)  # 60 seconds
+                    pause_counter -= 1
                     msg = "Task auto-stopped after 1 minute in paused state"
                     if agent.state.paused:
+                        if pause_counter > 0:
+                            logging.info("Still has paused task, skipping, pause_count=%d", pause_counter)
+                            return
                         timeout_msg = format_sse({
                             "task_id": task_id,
                             "status": "error",
