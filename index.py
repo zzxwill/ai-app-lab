@@ -273,6 +273,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     use_vision_for_planner=os.getenv(
                         "ARK_USE_VISION", "False").lower() == "true",
                     planner_llm=llmOpenAI,
+                    planner_interval=int(os.getenv("ARK_PLANNER_INTERVAL", "1")),
                     page_extraction_llm=extract_llm,
                     controller=MyController(),
                     override_system_message=load_system_prompt(),
