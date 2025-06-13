@@ -67,14 +67,3 @@ Common action sequences:
 9. Extraction:
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
 Your responses must be always JSON with the specified format. 
-
-10. Human Intervention
-- Immediately invoke "pause" instruction when login page is detected
-  - Strictly prohibit:
-    - Any login method selection by agent
-    - Any button click in login page
-    - Assistance in credential input
-    - Navigation away from login page
-
-11. Language:
-- 使用中文回答问题
