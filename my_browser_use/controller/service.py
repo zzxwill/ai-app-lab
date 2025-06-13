@@ -13,6 +13,7 @@ from playwright.async_api import Page
 from pydantic import BaseModel
 
 from my_browser_use.controller.views import PauseAction
+from my_browser_use.i18n import _
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class MyController(Controller):
 
         # Basic Navigation Actions
         @self.registry.action(
-            'Search the query in Baidu in the current tab, the query should be a search query like humans search in Baidu, concrete and not vague or super long. More the single most important items. ',
+            _('Search the query in Baidu in the current tab, the query should be a search query like humans search in Baidu, concrete and not vague or super long. More the single most important items.'),
             param_model=SearchGoogleAction,
         )
         async def search_google(params: SearchGoogleAction, browser_session: BrowserSession):
@@ -44,22 +45,22 @@ class MyController(Controller):
             page = await browser_session.get_current_page()
             await page.goto(search_url)
             await page.wait_for_load_state()
-            msg = f'🔍  Searched for "{params.query}" in Baidu'
+            msg = _('🔍 Searched for "{query}" in Baidu').format(query=params.query)
             logger.info(msg)
             return ActionResult(extracted_content=msg, include_in_memory=True)
         
         @self.registry.action(
-            'Pause agent',
+            _('Pause agent'),
             param_model=PauseAction,
         )
         async def pause(params: PauseAction):
-            msg = f'👩  Pause agent, reason: {params.reason}'
+            msg = _('👩 Pause agent, reason: {reason}').format(reason=params.reason)
             logger.info(msg)
             return ActionResult(extracted_content=msg, include_in_memory=True)
 
         # Content Actions
         @self.registry.action(
-            'Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about xyc, 4 links with companies in structured format. Use include_links true if the goal requires links',
+            _('Extract page content to retrieve specific information from the page, e.g. all company names, a specific description, all information about xyc, 4 links with companies in structured format. Use include_links true if the goal requires links'),
         )
         async def extract_content(
             goal: str,
@@ -89,16 +90,16 @@ class MyController(Controller):
                     content += f'\n\nIFRAME {iframe.url}:\n'
                     content += markdownify.markdownify(await iframe.content())
 
-            prompt = 'Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}'
+            prompt = _('Your task is to extract the content of the page. You will be given a page and a goal and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format. Extraction goal: {goal}, Page: {page}')
             template = PromptTemplate(input_variables=['goal', 'page'], template=prompt)
             try:
                 output = await page_extraction_llm.ainvoke(template.format(goal=goal, page=content))
-                msg = f'📄  Extracted from page\n: {output.content}\n'
+                msg = _('📄 Extracted from page\n: {content}\n').format(content=output.content)
                 logger.info(msg)
                 return ActionResult(extracted_content=msg, include_in_memory=True)
             except Exception as e:
-                logger.debug(f'Error extracting content: {e}')
-                msg = f'📄  Extracted from page\n: {content}\n'
+                logger.debug(_('Error extracting content: {error}').format(error=e))
+                msg = _('📄 Extracted from page\n: {content}\n').format(content=content)
                 logger.info(msg)
                 return ActionResult(extracted_content=msg)
 
