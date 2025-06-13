@@ -21,7 +21,7 @@ import uvicorn
 
 from browser import start_browser
 from cdp import get_websocket_version, websocket_browser_endpoint
-from my_browser_use.agent.prompts import load_system_prompt, load_planner_prompt
+from my_browser_use.agent.prompts import load_system_prompt, load_extend_prompt
 from my_browser_use.controller.service import MyController
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
@@ -246,7 +246,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
                 llmOpenAI = ChatOpenAI(
-                    base_url="https://ark.cn-beijing.volces.com/api/v3",
+                    base_url=os.getenv("ARK_API_URL", "https://ark.cn-beijing.volces.com/api/v3"),
                     model=os.getenv("ARK_MODEL_ID"),
                     api_key=os.getenv("ARK_API_KEY"),
                     default_headers={
@@ -254,7 +254,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     callbacks=[ModelLoggingCallback()],
                 )
                 extract_llm = ChatOpenAI(
-                    base_url="https://ark.cn-beijing.volces.com/api/v3",
+                    base_url=os.getenv("ARK_API_URL", "https://ark.cn-beijing.volces.com/api/v3"),
                     model=os.getenv("ARK_EXTRACT_MODEL_ID"),
                     api_key=os.getenv("ARK_API_KEY"),
                     default_headers={
@@ -277,7 +277,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     page_extraction_llm=extract_llm,
                     controller=MyController(),
                     override_system_message=load_system_prompt(),
-                    extend_planner_system_message=load_planner_prompt(),
+                    extend_planner_system_message=load_extend_prompt(),
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
