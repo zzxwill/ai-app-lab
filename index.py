@@ -25,6 +25,7 @@ from my_browser_use.agent.prompts import load_system_prompt, load_extend_prompt
 from my_browser_use.controller.service import MyController
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
+from my_browser_use.i18n import _, translate_planning_step_data
 
 from browser_use.agent.views import (
 	AgentOutput,
@@ -143,7 +144,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     pause_counter += 1
                     await asyncio.sleep(60)  # 60 seconds
                     pause_counter -= 1
-                    msg = "Task auto-stopped after 1 minute in paused state"
+                    msg = _("Task auto-stopped after 1 minute in paused state")
                     if agent.state.paused:
                         if pause_counter > 0:
                             logging.info("Still has paused task, skipping, pause_count=%d", pause_counter)
@@ -178,13 +179,14 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 'status': conversation_update["task_status"],
             })
             # Create and send conversation update without yielding
+            translated_conversation_update = translate_planning_step_data(conversation_update)
             conv_message = format_sse(
                 {
                     "task_id": task_id,
                     "status": "conversation_update",
                     "metadata": {
                         "type": "planning_step",
-                        "data": conversation_update
+                        "data": translated_conversation_update
                     }
                 }
             )
@@ -199,7 +201,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                         "metadata": {
                             "type": "message",
                             "data": {
-                                "message": f"Taken action #{i+1}: {action}"
+                                "message": _("Taken action #{number}: {action}").format(number=i+1, action=action)
                             }
                         }
                     }
@@ -218,7 +220,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     "metadata": {
                         "type": "message",
                         "data": {
-                            "message": "Starting new step..."
+                            "message": _("Starting new step...")
                         }
                     }
                 }
@@ -291,11 +293,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             yield format_sse({
                 "task_id": task_id,
                 "status": "error",
-                "error": f"Agent creation failed: {str(e)}"
+                "error": _("Agent creation failed: {error}").format(error=str(e))
             })
             taskManager.update_task(task_id, {
                 'status': 'failed',
-                'error': f"Agent creation failed: {str(e)}",
+                'error': _("Agent creation failed: {error}").format(error=str(e)),
                 'failed_at': datetime.now().isoformat()
             })
 
@@ -364,11 +366,11 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
         yield format_sse({
             "task_id": task_id,
             "status": "error",
-            "error": f"Agent execution failed: {str(e)}"
+            "error": _("Agent execution failed: {error}").format(error=str(e))
         })
         taskManager.update_task(task_id, {
             'status': 'failed',
-            'error': f"Agent execution failed: {str(e)}",
+            'error': _("Agent execution failed: {error}").format(error=str(e)),
             'failed_at': datetime.now().isoformat()
         })
     finally:
