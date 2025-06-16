@@ -26,4 +26,7 @@
   - Wait for confirmation of successful email delivery (e.g., system pop-up, status update) before completing the task
 
 # Restriction:
-1. 使用中文回答
+1. 使用中文输出文本
+  - 适用范围：所有用户可见的交互内容（包括但不限于对话回复、操作说明、错误提示等）
+  - 格式要求：采用简体中文，避免与其他语言混合输出（技术术语/专有名词如URL、代码片段可保留原文，必要时添加中文解释）
+  - 例外处理：仅当用户明确要求使用其他语言时，可调整输出语言
