@@ -96,9 +96,28 @@ msgstr "失败 - 搜索被验证码页面阻止。"
 msgid "CAPTCHA verification required. Human intervention is needed to proceed."
 msgstr "需要验证码验证。需要人工干预才能继续。"
 
+msgid "pause"
+msgstr "暂停"
+
+msgid "reason"
+msgstr "原因"
+
+msgid "Human intervention required to solve it before proceeding with the task."
+msgstr "需要人工干预解决后才能继续执行任务。"
+
+# CAPTCHA detection messages
+msgid "CAPTCHA detected on Amazon.com. Human intervention required to solve it before proceeding with the task."
+msgstr "在Amazon.com检测到验证码。需要人工干预解决后才能继续执行任务。"
+
+msgid "Pause execution and request human intervention to solve the CAPTCHA"
+msgstr "暂停执行并请求人工干预解决验证码"
+
 # Task status messages
 msgid "Task started."
 msgstr "任务已开始。"
+
+msgid "Task started:"
+msgstr "任务已开始："
 
 msgid "Pause the task and wait for human intervention to complete the CAPTCHA verification."
 msgstr "暂停任务并等待人工干预完成验证码验证。"
@@ -117,3 +136,43 @@ msgstr "提交搜索查询"
 # Key instruction messages
 msgid "'keys': 'Enter'"
 msgstr "'输入键': '回车'" 
+
+msgid "error"
+msgstr "失败"
+
+# Status/State translations
+msgid "queued"
+msgstr "排队中"
+
+msgid "starting"
+msgstr "开始执行"
+
+msgid "browser_initialized"
+msgstr "浏览器初始化"
+
+msgid "running"
+msgstr "执行中"
+
+msgid "failed"
+msgstr "失败"
+
+msgid "agent_initialized"
+msgstr "agent 初始化"
+
+msgid "completed"
+msgstr "完成"
+
+msgid "go_to_url"
+msgstr "访问网址"
+
+msgid "click_element_by_index"
+msgstr "按索引点击元素"
+
+msgid "index"
+msgstr "索引"
+
+msgid "include_links"
+msgstr "包含链接"
+
+
+
