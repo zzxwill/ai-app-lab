@@ -280,6 +280,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     controller=MyController(),
                     override_system_message=load_system_prompt(),
                     extend_planner_system_message=load_extend_prompt(),
+                    language="zh-CN"
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
