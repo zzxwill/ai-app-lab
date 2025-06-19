@@ -142,9 +142,9 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 async def delayed_stop():
                     nonlocal pause_counter
                     pause_counter += 1
-                    await asyncio.sleep(60)  # 60 seconds
+                    await asyncio.sleep(60*3)
                     pause_counter -= 1
-                    msg = _("Task auto-stopped after 1 minute in paused state")
+                    msg = _("Task auto-stopped after 3 minutes in paused state")
                     if agent.state.paused:
                         if pause_counter > 0:
                             logging.info("Still has paused task, skipping, pause_count=%d", pause_counter)
