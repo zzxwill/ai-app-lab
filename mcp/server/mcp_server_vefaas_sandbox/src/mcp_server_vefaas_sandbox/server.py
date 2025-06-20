@@ -26,8 +26,10 @@ def send_request(payload):
         "Authorization": f"Bearer {SANDBOX_AUTH_KEY}" if SANDBOX_AUTH_KEY else "",
     }
     sandbox_api = os.getenv("SANDBOX_API", Sandbox_API_BASE)
-    if not sandbox_api.startswith("http://") and not sandbox_api.startswith("https://"):
-        sandbox_api = f"http://{sandbox_api}"
+    if sandbox_api.startswith("http://"):
+        sandbox_api = sandbox_api.removeprefix("http://")
+    elif sandbox_api.startswith("https://"):
+        sandbox_api = sandbox_api.removeprefix("https://")
 
     conn = http.client.HTTPSConnection(sandbox_api)
     conn.request("POST", "/run_code", payload, headers)
