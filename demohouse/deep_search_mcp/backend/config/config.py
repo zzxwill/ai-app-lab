@@ -29,3 +29,5 @@ RESUME_SLEEP_SECS = int(os.environ.get('RESUME_SLEEP_SECS') or '30')
 RETRY_SLEEP_SECS = int(os.environ.get('RETRY_SLEEP_SECS') or '2')
 
 RETRY_TIMES = int(os.environ.get('RETRY_TIMES') or '5')
+
+BROWSER_USE_AUTH_KEY = os.environ.get('BROWSER_USE_AUTH_KEY') or ''

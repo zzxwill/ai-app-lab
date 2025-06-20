@@ -14,7 +14,8 @@ import re
 import traceback
 import aiohttp
 
-from config.config import BROWSER_USE_ENDPOINT, SESSION_SAVE_PATH, RETRY_SLEEP_SECS, RESUME_SLEEP_SECS, RETRY_TIMES
+from config.config import BROWSER_USE_ENDPOINT, SESSION_SAVE_PATH, RETRY_SLEEP_SECS, RESUME_SLEEP_SECS, RETRY_TIMES, \
+    BROWSER_USE_AUTH_KEY
 from models.events import BrowserUseToolCompletedEvent
 
 
@@ -62,6 +63,7 @@ class BrowserUseClient:
             "X-Faas-Event-Type": "http",
             "Content-Type": "application/json",
             "x-faas-instance-name": pod_name,
+            "Authorization": f"Bearer {BROWSER_USE_AUTH_KEY}" if BROWSER_USE_AUTH_KEY else "",
         }
         print(self.headers)
 
