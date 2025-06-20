@@ -8,12 +8,13 @@ from playwright.async_api._generated import Playwright as AsyncPlaywright
 
 browser_ready_event = asyncio.Event()
 
-
 class BrowserWrapper:
-    def __init__(self, port, browser: Browser, playwright: AsyncPlaywright):
+    def __init__(self, port, browser: Browser, playwright: AsyncPlaywright, remote_browser_id: str = None, endpoint: str = None):
         self.port = port
         self.browser = browser
         self.playwright = playwright
+        self.remote_browser_id = remote_browser_id
+        self.endpoint = endpoint
 
     async def stop(self):
         if self.browser:
@@ -30,9 +31,22 @@ class BrowserWrapper:
             await self.playwright.stop()
             logging.info(
                 f"Paywright session on port {self.port} closed successfully")
+        if self.remote_browser_id and self.endpoint:
+            logging.info(f"Closing remote browser {self.remote_browser_id}...")
+            try:
+                async with aiohttp.ClientSession() as session:
+                    delete_url = f"{self.endpoint}/{self.remote_browser_id}"
+                    async with session.delete(delete_url, timeout=30) as response:
+                        if response.status == 200:
+                            logging.info(f"Remote browser {self.remote_browser_id} closed successfully")
+                        else:
+                            error_text = await response.text()
+                            logging.error(f"Failed to close remote browser. Status: {response.status}, Error: {error_text}")
+            except Exception as e:
+                logging.error(f"Error closing remote browser {self.remote_browser_id}: {e}")
 
 
-async def start_browser(port):
+async def start_local_browser(port):
     logging.info(f"Attempting to start browser on port {port}")
     p = None
     browser = None
@@ -101,3 +115,31 @@ async def start_browser(port):
         logging.info('closing playwright driver and browser')
         await w.stop()
         raise
+
+async def start_remote_browser(endpoint):
+    logging.info(f"Attempting to create browser via remote endpoint: {endpoint}")
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            data = {"timeout": 30}
+            
+            async with session.post(
+                endpoint,
+                json=data,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    logging.info(f"Browser created successfully: {result}")
+                    return BrowserWrapper(None, None, None, result['id'], endpoint)
+                else:
+                    error_text = await response.text()
+                    logging.error(f"Failed to create browser. Status: {response.status}, Error: {error_text}")
+                    raise Exception(f"Failed to create browser: {response.status} - {error_text}")
+                    
+    except Exception as e:
+        logging.error(f"Error creating remote browser: {e}")
+        raise
+
+    

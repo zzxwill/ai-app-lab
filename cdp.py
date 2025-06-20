@@ -3,7 +3,6 @@ import json
 import logging
 import os
 from urllib.parse import urlparse, urlunparse
-
 import aiohttp
 import websockets
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
@@ -150,6 +149,24 @@ async def get_websocket_version(port: str):
                 else:
                     raise HTTPException(
                         status_code=response.status, detail="Failed to fetch JSON list")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error fetching JSON list: {str(e)}")
+
+async def get_remote_websocket_version(browser_session_endpoint: str, browser_id: str):
+    endpoint = os.getenv("CDP_ENDPOINT")
+    logging.info(f"Getting websocket version for endpoint: {endpoint}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Use the cdp_websocket parameter to dynamically construct the URL
+            base_url = f"{browser_session_endpoint}/{browser_id}/json/version"
+            async with session.get(base_url) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return result
+                else:
+                    raise HTTPException(
+                        status_code=response.status, detail="Failed to fetch JSON version")
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error fetching JSON list: {str(e)}")

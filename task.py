@@ -29,7 +29,7 @@ class TaskManager:
         # TODO: kuoxin@ refine this logic with a task object
         return self.active_tasks[task_id]
 
-    async def get_task_port(self, task_id: str, websocket: WebSocket = None) -> int:
+    async def get_task_port(self, task_id: str, websocket: WebSocket | None = None) -> int | None:
         if not task_id:
             if websocket:
                 await websocket.close(code=4000, reason="task_id is required")

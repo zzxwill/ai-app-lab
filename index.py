@@ -1,30 +1,32 @@
 import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime
 import http
 import json
 import logging
 import os
-from pathlib import Path
-import time
-from typing import AsyncGenerator
 import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import AsyncGenerator
 import aiohttp
-from my_browser_use.agent.service import MyAgent as Agent
-from browser_use.browser.browser import BrowserProfile, BrowserSession
+import aiohttp
+import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
-import uvicorn
-from browser import start_browser
-from cdp import get_websocket_version, websocket_browser_endpoint
+from pydantic import BaseModel, SecretStr
+from browser_use import Agent, BrowserProfile, BrowserSession
+
+from browser import start_local_browser, start_remote_browser
+from cdp import get_websocket_version, websocket_browser_endpoint, get_remote_websocket_version
 from my_browser_use.agent.prompts import load_system_prompt, load_extend_prompt
 from my_browser_use.controller.service import MyController
+from my_browser_use.i18n import _, translate_planning_step_data
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
+from my_browser_use.agent.service import MyAgent as Agent
 from my_browser_use.i18n import _, translate_planning_step_data, set_language
 
 from browser_use.agent.views import (
@@ -55,6 +57,7 @@ CURRENT_CDP_PORT = 9222
 # Global task queue and task storage
 taskManager = TaskManager()
 
+browser_session_endpoint = None
 set_language(os.getenv("LANGUAGE", "en"))
 
 
@@ -84,9 +87,39 @@ async def gen_step_callback_result(model_output: AgentOutput, step_number: int):
 
         return conversation_update
 
-async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator[str, None]:
-    logging.info(
-        f"[{task_id}] Starting task with prompt: '{task}', CDP port: {current_port}")
+async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
+    # Get task info to determine browser type and connection details
+    task_info = taskManager.get_task_by_id(task_id)
+    browser_wrapper = task_info['browser']
+
+    cdp_url = None
+
+    if browser_wrapper.remote_browser_id:
+        # Remote browser - get the CDP URL from the remote browser API
+        logging.info(f"[{task_id}] Starting task with remote browser: {browser_wrapper.remote_browser_id}")
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                get_url = f"{browser_wrapper.endpoint}/{browser_wrapper.remote_browser_id}"
+                async with session.get(get_url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status == 200:
+                        browser_info = await response.json()
+                        cdp_url = browser_info['cdp_url']
+                        # Ensure CDP URL has proper trailing slash for Playwright
+                        if not cdp_url.endswith('/'):
+                            cdp_url = cdp_url + '/'
+                        logging.info(f"[{task_id}] Retrieved remote CDP URL: {cdp_url}")
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"Failed to get browser info. Status: {response.status}, Error: {error_text}")
+        except Exception as e:
+            logging.error(f"[{task_id}] Error getting remote browser websocket URL: {e}")
+            raise
+    else:
+        # Local browser - use the port
+        current_port = task_info['port']
+        logging.info(f"[{task_id}] Starting task with local browser on port: {current_port}")
+        cdp_url = f"http://127.0.0.1:{current_port}"
 
     browser_session = None
     agent = None
@@ -113,15 +146,20 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
     Path(snapshot_dir).mkdir(parents=True, exist_ok=True)
 
     try:
+        if browser_session_endpoint:
+            headless = False
+        else:
+            headless = True
+
         browser_profile = BrowserProfile(
-            headless=True,
+            headless=headless,
             disable_security=True,
             highlight_elements=False,
             wait_between_actions=1,
         )
         browser_session = BrowserSession(
             browser_profile=browser_profile,
-            cdp_url=f"http://127.0.0.1:{current_port}",
+            cdp_url=cdp_url,
         )
 
         await send_sse_message(format_sse({"task_id": task_id, "status": "browser_initialized"}))
@@ -130,7 +168,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
             'last_update': datetime.now().isoformat()
         })
         logging.info(
-            f"[{task_id}] Browser initialized on port {current_port}")
+            f"[{task_id}] Browser initialized with CDP URL: {cdp_url}")
 
         # set pause counter, to stop agent if it's still paused after 1 minute
         pause_counter = 0
@@ -382,8 +420,10 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
     finally:
         # some cleanup work
         async def cleanup():
-            agent.stop()
-            await agent_task
+            if agent:
+                agent.stop()
+            if agent_task:
+                await agent_task
             try:
                 if browser_session:
                     await browser_session.close()
@@ -426,20 +466,24 @@ async def run(request: Messages):
 
     logging.debug(f"Final prompt value: {prompt}")
 
-    global CURRENT_CDP_PORT
+    if browser_session_endpoint:
+        browser = await start_remote_browser(browser_session_endpoint)
+        current_port = None
+    else:
+        global CURRENT_CDP_PORT
 
-    # TODO: kuoxin@ refine this logic
-    # Increment the port for each task
-    CURRENT_CDP_PORT += 1
-    current_port = CURRENT_CDP_PORT
+        # TODO: kuoxin@ refine this logic
+        # Increment the port for each task
+        CURRENT_CDP_PORT += 1
+        current_port = CURRENT_CDP_PORT
 
-    browser = await start_browser(current_port)
+        browser = await start_local_browser(current_port)
 
     message_queue = asyncio.Queue()
 
     async def run_task_wrapper():
         task_info = taskManager.get_task_by_id(task_id)
-        async for result in run_task(task_info['prompt'], task_id, current_port):
+        async for result in run_task(task_info['prompt'], task_id):
             await message_queue.put(format_sse({
                 "task_id": task_id,
                 "data": result
@@ -451,7 +495,7 @@ async def run(request: Messages):
 
     taskManager.add_task(task_id, {
         'prompt': prompt,
-        'port': current_port,
+        'port': current_port,  # None for remote browsers, actual port for local
         'status': 'queued',
         'created_at': datetime.now().isoformat(),
         'browser': browser,
@@ -527,8 +571,14 @@ async def json_version(task_id: str):
         f"Received request for /devtools/json/version with task_id: {task_id}")
     logging.info(f"active_tasks: {taskManager.get_active_tasks}")
 
-    port = await taskManager.get_task_port(task_id)
-    return await get_websocket_version(port)
+    if browser_session_endpoint:
+        task = taskManager.get_task_by_id(task_id)
+        browser_id = task['browser'].remote_browser_id
+
+        return await get_remote_websocket_version(browser_session_endpoint, browser_id)
+    else:
+        port = await taskManager.get_task_port(task_id)
+        return await get_websocket_version(str(port))
 
 
 @app.websocket("/tasks/{task_id}/devtools/browser/{browser_id}")
@@ -540,7 +590,7 @@ async def cdp_websocket_browser(websocket: WebSocket, task_id: str, browser_id: 
     if port is None:
         return
 
-    await websocket_browser_endpoint(websocket, browser_id, port)
+    await websocket_browser_endpoint(websocket, browser_id, str(port))
 
 
 async def cleanup_stale_tasks():
@@ -591,6 +641,19 @@ async def cleanup_stale_tasks():
 if __name__ == "__main__":
     llm_name = check_llm_config()
     enforce_log_format()
+
+    browser_session_endpoint = os.getenv("BROWSER_SESSION_ENDPOINT")
+
+    # Ensure the endpoint starts with http/https and ends with 'v1/browsers'
+    if browser_session_endpoint:
+        logging.info(f"using browser session endpoint: {browser_session_endpoint}")
+        if not browser_session_endpoint.startswith(('http://', 'https://')):
+            browser_session_endpoint = 'https://' + browser_session_endpoint
+        if not browser_session_endpoint.endswith('v1/browsers'):
+            browser_session_endpoint = browser_session_endpoint.rstrip('/') + '/v1/browsers'
+
+    else:
+        logging.info("no browser session endpoint provided, using local browser")
 
     @asynccontextmanager
     async def lifespan(app):
