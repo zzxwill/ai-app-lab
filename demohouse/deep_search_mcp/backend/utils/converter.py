@@ -185,7 +185,7 @@ def convert_python_execute_result_to_event(raw_args: str, raw_response: str) -> 
         py_code: str = json.loads(raw_args).get('pyCode')
         body = json.loads(raw_response).get('body')
         run_result = json.loads(body).get('run_result')
-        stdout = run_result.get('stdout', '') or ''
+        stdout = run_result.get('stdout', '') or run_result.get('run_result', {}).get('stdout', '') or ''
 
         code_str = json.loads(raw_args).get('codeStr', '')
         files = run_result.get('files', {})
