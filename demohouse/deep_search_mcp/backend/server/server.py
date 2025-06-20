@@ -200,6 +200,7 @@ def get_workers(
             workers.update({"browser_user": browser_user})
         if "chatppt" in global_state.custom_state.enabled_mcp_servers:
             workers.update({"ppt_generator": ppt_generator})
+        workers.update({"llm_generator": llm_generator})
 
         return workers
     else:
