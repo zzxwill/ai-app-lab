@@ -14,10 +14,13 @@ mcp = FastMCP("VeFaaS Browser Use", port=int(os.getenv("PORT", "8000")))
 
 SESSION_SAVE_PATH = os.environ.get('SESSION_SAVE_PATH') or '/tmp/deep_research_session/'
 
+BROWSER_USE_AUTH_KEY = os.environ.get('BROWSER_USE_AUTH_KEY') or ""
+
 HEADERS = {
         "X-Faas-Event-Type": "http",
         "Content-Type": "application/json",
         "x-faas-instance-name": "",
+        "Authorization": f"Bearer {BROWSER_USE_AUTH_KEY}" if BROWSER_USE_AUTH_KEY else "",
     }
 
 @mcp.tool(description="""Creates a browser use task which can automatically browse the web.

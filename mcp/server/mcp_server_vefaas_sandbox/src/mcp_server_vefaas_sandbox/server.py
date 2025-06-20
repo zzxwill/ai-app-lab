@@ -14,6 +14,7 @@ mcp = FastMCP("vefaas-sandbox", port=int(os.getenv("PORT", "8000")))
 Sandbox_API_BASE = (
     "xxx.apigateway-cn-beijing.volceapi.com"  # 替换为用户沙盒服务 APIG 地址
 )
+SANDBOX_AUTH_KEY = os.getenv("SANDBOX_AUTH_KEY", "")
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ def send_request(payload):
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/plain, */*",
+        "Authorization": f"Bearer {SANDBOX_AUTH_KEY}" if SANDBOX_AUTH_KEY else "",
     }
     sandbox_api = os.getenv("SANDBOX_API", Sandbox_API_BASE)
     conn = http.client.HTTPSConnection(sandbox_api)
