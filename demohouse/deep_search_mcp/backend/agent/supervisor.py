@@ -215,6 +215,7 @@ class Supervisor(Agent):
                 and chunk.choices
                 and chunk.choices[0].delta.content
             ):
+                buffer_response += chunk.choices[0].delta.content
                 yield OutputTextEvent(delta=chunk.choices[0].delta.content)
             if (
                 isinstance(chunk, ChatCompletionChunk)
