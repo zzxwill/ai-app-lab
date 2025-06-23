@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 import aiohttp
 from playwright.async_api import async_playwright
 from playwright.async_api import Browser
@@ -44,7 +43,8 @@ async def start_browser(port):
 
         try:
             browser = await p.chromium.launch(
-                headless=True,
+                # executable_path="/opt/chromium.org/browser_use/chromium/chromium-browser-use",
+                headless=False,
                 args=[
                     f'--remote-debugging-port={port}',
                     '--remote-allow-origins=*',
@@ -64,7 +64,7 @@ async def start_browser(port):
                         if response.status == 200:
                             version_info = await response.json()
                             logging.info(
-                                f"CDP version info: {version_info}")
+                                f"successfully connected to cdp: {version_info}")
                         else:
                             logging.error(
                                 f"Failed to get CDP version. Status: {response.status}")
