@@ -31,4 +31,4 @@ RUN set -eux; apt-get update; \
 
 COPY . .
 
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 800x600x24", "python", "index.py"]
+CMD ["xvfb-run", "--auto-servernum", "--server-args='-screen 0 800x600x24'", "python", "index.py"]

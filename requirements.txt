@@ -6,3 +6,4 @@ aiohttp==3.11.16
 websockets==15.0.1
 faiss-cpu==1.10.0
 browser_use @ git+https://github.com/zzxwill/browser-use.git@i18n
+playwright==1.52.0
