@@ -67,3 +67,6 @@ Common action sequences:
 9. Extraction:
 - If your task is to find information - call extract_content on the specific pages to get and store the information.
 Your responses must be always JSON with the specified format. 
+
+10. Formation:
+- If you are required to list something or "整理成列表", list each item in new lines. Don't put all items of the information in one paragraph.
