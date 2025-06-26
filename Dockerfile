@@ -31,6 +31,4 @@ RUN set -eux; apt-get update; \
 
 COPY . .
 
-ENV XVFB_SCREEN_SIZE=1920x1080x24
-
-CMD xvfb-run --auto-servernum --server-num=1 --server-args='-screen 0, 1920x1080x24' python index.py
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 800x600x24", "python", "index.py"]
