@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import aiohttp
 from playwright.async_api import async_playwright
 from playwright.async_api import Browser
@@ -42,6 +43,15 @@ async def start_browser(port):
         w = BrowserWrapper(port, None, p)
 
         try:
+            # Configure proxy if environment variables are set
+            proxy_config = None
+            proxy_server = os.getenv('PROXY_SERVER')
+            if proxy_server:
+                proxy_config = {
+                    'server': proxy_server,
+                    'bypass': '127.0.0.1,localhost'
+                }
+
             browser = await p.chromium.launch(
                 # executable_path="/opt/chromium.org/browser_use/chromium/chromium-browser-use",
                 headless=False,
@@ -51,6 +61,7 @@ async def start_browser(port):
                     '--remote-debugging-address=0.0.0.0',
                     '--no-sandbox'
                 ],
+                proxy=proxy_config
             )
 
             w = BrowserWrapper(port, browser, p)
