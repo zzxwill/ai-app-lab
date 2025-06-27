@@ -119,20 +119,19 @@ Improvement Suggestion: "Dear, many users have shared positive feedback about ex
     messages = [ArkMessage(role="system", content=system_prompt)]
     messages.extend(request.messages)
 
-    parameters = ArkChatParameters(**request.__dict__)
-
     llm = BaseChatLanguageModel(
         model=endpoint_id,
         messages=messages,
-        parameters=parameters,
     )
 
     if request.stream:
         async for resp in llm.astream(
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         ):
             yield resp
     else:
         yield await llm.arun(
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         )

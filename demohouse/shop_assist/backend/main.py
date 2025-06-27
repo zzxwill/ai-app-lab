@@ -28,10 +28,8 @@ from utils import get_auth_header, get_handler
 
 from arkitect.core.component.bot.server import BotServer
 from arkitect.core.component.llm import BaseChatLanguageModel
-from arkitect.core.component.tool.tool_pool import build_tool_pool
 from arkitect.core.errors import InternalServiceError
 from arkitect.launcher.runner import (
-    get_default_client_configs,
     get_endpoint_config,
     get_runner,
 )
@@ -39,7 +37,6 @@ from arkitect.telemetry.trace import task
 from arkitect.telemetry.trace.setup import setup_tracing
 from arkitect.types.llm.model import (
     ArkChatCompletionChunk,
-    ArkChatParameters,
     ArkChatRequest,
     ArkChatResponse,
     ArkMessage,
@@ -55,7 +52,6 @@ from arkitect.utils.context import (
 async def custom_support_chat(
     request: ArkChatRequest,
 ) -> AsyncIterable[Union[ArkChatCompletionChunk, ArkChatResponse]]:
-    parameters = ArkChatParameters(**request.__dict__)
     meta_data = request.metadata if request.metadata else {}
     account_id = meta_data.get("account_id", "test")
     functions = meta_data.get(
@@ -85,7 +81,6 @@ async def custom_support_chat(
     llm = BaseChatLanguageModel(
         model=endpoint_id,
         messages=messages,
-        parameters=parameters,
     )
 
     if request.stream:
@@ -93,6 +88,7 @@ async def custom_support_chat(
             functions=tools,
             additional_system_prompts=[knowledge_prompt],
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         ):
             if resp.usage:
                 resp.bot_usage = BotUsage(action_details=[action_detail])
@@ -102,6 +98,7 @@ async def custom_support_chat(
             functions=tools,
             additional_system_prompts=[knowledge_prompt],
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         )
         resp.bot_usage = BotUsage(action_details=[action_detail])
         yield resp
