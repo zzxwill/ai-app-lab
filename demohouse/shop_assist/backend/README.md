@@ -15,25 +15,25 @@
 ![alt text](assets/image-9.png)
 ## 关联模型及云产品
 ### 模型
-|相关服务|描述|计费说明|
-| ---- | ---- | ---- |
-|Doubao-1.5-pro-32k|通过Function Calling能力选择所需工具，根据消费者的问题生成商家回复，并可进行一键总结，回答质检等功能。|<a target="_blank" href="https://www.volcengine.com/docs/82379/1099320">多种计费方式</a>|
+| 相关服务               | 描述                                                                                                   | 计费说明                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| doubao-seed-1-6-250615 | 通过Function Calling能力选择所需工具，根据消费者的问题生成商家回复，并可进行一键总结，回答质检等功能。 | <a target="_blank" href="https://www.volcengine.com/docs/82379/1099320">多种计费方式</a> |
 
 ### 云服务
-|相关服务|描述|计费说明|
-| ---- | ---- | ---- |
-|<a target="_blank" href="https://www.volcengine.com/docs/82379/1261883">知识库</a>|提供知识管理的能力，支持对文档执行解析、切片、向量化、构建索引等处理进行知识检索。|<a target="_blank" href="https://www.volcengine.com/docs/82379/1263336">多种计费方式</a> |
-|<a target="_blank" href="https://www.volcengine.com/product/TOS">对象存储</a> |基于先进分布式技术，帮助用户存储并管理海量非结构化数据。|<a target="_blank" href="https://www.volcengine.com/docs/6349/78455">按量计费+资源包</a>|
-|<a target="_blank" href="https://www.volcengine.com/product/vefaas">函数服务</a> |Serverless全托管计算平台，支持快速创建部署函数。|<a target="_blank" href="https://www.volcengine.com/docs/6662/107454">按量计费+资源包</a>|
-|<a target="_blank" href="https://www.volcengine.com/product/tls">日志服务</a>|提供针对日志类数据的一站式服务。|<a target="_blank" href="https://www.volcengine.com/docs/6470/1215813">按量计费</a>|
-|<a target="_blank" href="https://www.volcengine.com/product/apig">API网关</a>|基于云原生、高扩展、高可用的云上网关托管服务。|<a target="_blank" href="https://www.volcengine.com/docs/6569/185249">按量计费</a>| 
+| 相关服务                                                                           | 描述                                                                               | 计费说明                                                                                  |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| <a target="_blank" href="https://www.volcengine.com/docs/82379/1261883">知识库</a> | 提供知识管理的能力，支持对文档执行解析、切片、向量化、构建索引等处理进行知识检索。 | <a target="_blank" href="https://www.volcengine.com/docs/82379/1263336">多种计费方式</a>  |
+| <a target="_blank" href="https://www.volcengine.com/product/TOS">对象存储</a>      | 基于先进分布式技术，帮助用户存储并管理海量非结构化数据。                           | <a target="_blank" href="https://www.volcengine.com/docs/6349/78455">按量计费+资源包</a>  |
+| <a target="_blank" href="https://www.volcengine.com/product/vefaas">函数服务</a>   | Serverless全托管计算平台，支持快速创建部署函数。                                   | <a target="_blank" href="https://www.volcengine.com/docs/6662/107454">按量计费+资源包</a> |
+| <a target="_blank" href="https://www.volcengine.com/product/tls">日志服务</a>      | 提供针对日志类数据的一站式服务。                                                   | <a target="_blank" href="https://www.volcengine.com/docs/6470/1215813">按量计费</a>       |
+| <a target="_blank" href="https://www.volcengine.com/product/apig">API网关</a>      | 基于云原生、高扩展、高可用的云上网关托管服务。                                     | <a target="_blank" href="https://www.volcengine.com/docs/6569/185249">按量计费</a>        |
 
 ## 环境准备
 
 - Python 版本要求大于等于 3.10，小于 3.12
 - <a target="_blank" href="https://console.volcengine.com/iam/keymanage/">获取火山引擎 AK SK</a> | <a target="_blank" href="https://www.volcengine.com/docs/6291/65568">参考文档</a>
   注意：如果使用的是 IAM 子用户的 AK SK，请联系管理员授予该用户 ArkFullAccess + TOSFullAccess 预设策略，或者 AdministratorAccess 预设策略。
-- 在<a target="_blank" href="https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?LLM=%7B%7D&OpenTokenDrawer=false">开通管理页</a>开通 doubao-1-5-pro-32k 模型。
+- 在<a target="_blank" href="https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement?LLM=%7B%7D&OpenTokenDrawer=false">开通管理页</a>开通 doubao-seed-1-6-250615 模型。
 - <a target="_blank" href="https://console.volcengine.com/tos/bucket?">创建 TOS Bucket</a> 用于存储FAQ数据 | <a target="_blank" href="https://www.volcengine.com/docs/6349/74830">参考文档</a>
 
 ## 快速入门
@@ -76,8 +76,8 @@ export VOLC_SECRETKEY="your_secret_key"
 export COLLECTION_NAME="your_collection_name" 
 # 填写FAQ检索用知识库名称
 export FAQ_COLLECTION_NAME="your_faq_collection_name" 
-# 填写使用的大语言模型 Model ID，建议使用doubao-1-5-pro-32k-250115
-export LLM_ENDPOINT_ID="doubao-1-5-pro-32k-250115"
+# 填写使用的大语言模型 Model ID，建议使用doubao-seed-1-6-250615
+export LLM_ENDPOINT_ID="doubao-seed-1-6-250615"
 # 填写存储FAQ使用的 TOS Bucket 名称
 export BUCKET_NAME="your_bucket_name"
 # True: 使用环境变量中的 VOLC_ACCESSKEY 或 ARK_API_KEY 为后续LLM访问鉴权
@@ -140,11 +140,7 @@ curl --location 'http://localhost:8080/api/v3/bots/chat/completions/quality_insp
     "messages": [
         {
             "role": "user",
-            "content": "这个可爱风腰靠垫价格还可以更低吗？"
-        },
-        {
-            "role": "assistant",
-            "content": "亲,这款商品绝对是全网最 低价啦!"
+            "content": "user:这个可爱风腰靠垫价格还可以更低吗？\n assistant: 亲,这款商品绝对是全网最 低价啦!"
         }
     ]
 }'
@@ -159,11 +155,7 @@ curl --location 'http://localhost:8080/api/v3/bots/chat/completions/summary' \
     "messages": [
         {
             "role": "user",
-            "content": "这个可爱风腰靠垫价格还可以更低吗？"
-        },
-        {
-            "role": "assistant",
-            "content": "亲,这款商品绝对是全网最 低价啦!"
+            "content": "user:这个可爱风腰靠垫价格还可以更低吗？\n assistant: 亲,这款商品绝对是全网最 低价啦!"
         }
     ]
 }'
@@ -178,11 +170,7 @@ curl --location 'http://localhost:8080/api/v3/bots/chat/completions/next_questio
     "messages": [
         {
             "role": "user",
-            "content": "这个可爱风腰靠垫价格还可以更低吗？"
-        },
-        {
-            "role": "assistant",
-            "content": "亲,这款商品绝对是全网最 低价啦!"
+            "content": "user:这个可爱风腰靠垫价格还可以更低吗？\n assistant: 亲,这款商品绝对是全网最 低价啦!"
         }
     ]
 }'

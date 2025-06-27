@@ -13,9 +13,10 @@ import os
 from typing import AsyncIterable, List, Union
 
 import pandas as pd
-from config import endpoint_id
+from volcenginesdkarkruntime import AsyncArk
+from config import endpoint_id, language
 from data import rag
-from data.product import PRODUCTS
+from data.product import get_products
 from data.rag import retrieval_knowledge
 from fastapi import HTTPException
 from next_question import next_question_chat
@@ -27,10 +28,8 @@ from utils import get_auth_header, get_handler
 
 from arkitect.core.component.bot.server import BotServer
 from arkitect.core.component.llm import BaseChatLanguageModel
-from arkitect.core.component.tool.tool_pool import build_tool_pool
 from arkitect.core.errors import InternalServiceError
 from arkitect.launcher.runner import (
-    get_default_client_configs,
     get_endpoint_config,
     get_runner,
 )
@@ -38,7 +37,6 @@ from arkitect.telemetry.trace import task
 from arkitect.telemetry.trace.setup import setup_tracing
 from arkitect.types.llm.model import (
     ArkChatCompletionChunk,
-    ArkChatParameters,
     ArkChatRequest,
     ArkChatResponse,
     ArkMessage,
@@ -54,14 +52,13 @@ from arkitect.utils.context import (
 async def custom_support_chat(
     request: ArkChatRequest,
 ) -> AsyncIterable[Union[ArkChatCompletionChunk, ArkChatResponse]]:
-    parameters = ArkChatParameters(**request.__dict__)
     meta_data = request.metadata if request.metadata else {}
     account_id = meta_data.get("account_id", "test")
     functions = meta_data.get(
         "support_functions",
         [*FUNCTION_MAP],
     )
-    products = meta_data.get("product_list", [*PRODUCTS])
+    products = meta_data.get("product_list", [*get_products()])
 
     # insert knowledge
     tools, system_prompt = register_support_functions(functions, products, account_id)
@@ -73,22 +70,25 @@ async def custom_support_chat(
             "op": "or",
             "conds": [
                 {"op": "must", "field": "account_id", "conds": [account_id]},
-                {"op": "must", "field": "产品名", "conds": products},
+                {
+                    "op": "must",
+                    "field": "产品名" if language == "zh" else "product_name",
+                    "conds": products,
+                },
             ],
         },
     )
     llm = BaseChatLanguageModel(
         model=endpoint_id,
         messages=messages,
-        parameters=parameters,
     )
 
-    print(await build_tool_pool(tools).list_tools(False))
     if request.stream:
         async for resp in llm.astream(
             functions=tools,
             additional_system_prompts=[knowledge_prompt],
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         ):
             if resp.usage:
                 resp.bot_usage = BotUsage(action_details=[action_detail])
@@ -98,6 +98,7 @@ async def custom_support_chat(
             functions=tools,
             additional_system_prompts=[knowledge_prompt],
             extra_headers=get_auth_header(),
+            extra_body={"thinking": {"type": "disabled"}},
         )
         resp.bot_usage = BotUsage(action_details=[action_detail])
         yield resp
@@ -105,7 +106,7 @@ async def custom_support_chat(
 
 class Product(BaseModel):
     name: str
-    description: str = Field(..., max_length=100)
+    description: str
     cover_image: str
 
 
@@ -115,9 +116,10 @@ class ProductListResponse(BaseModel):
 
 
 async def list_products():
+    products_dict = get_products()
     return ProductListResponse(
-        products=[Product(**v) for v in PRODUCTS.values()],
-        total=len(PRODUCTS),
+        products=[Product(**v) for v in products_dict.values()],
+        total=len(products_dict),
     )
 
 
@@ -160,7 +162,17 @@ if __name__ == "__main__":
         endpoint_config=get_endpoint_config(
             "/api/v3/bots/chat/completions", custom_support_chat
         ),
-        clients=get_default_client_configs(),
+        clients={
+            "ark": (
+                AsyncArk,
+                {
+                    "base_url": "https://ark.cn-beijing.volces.com/api/v3"
+                    if language == "zh"
+                    else "https://ark.ap-southeast.volces.com/api/v3",
+                    "region": "cn-beijing" if language == "zh" else "ap-southeast-1",
+                },
+            ),
+        },
     )
     server.app.add_api_route(
         "/api/v3/bots/chat/completions",
