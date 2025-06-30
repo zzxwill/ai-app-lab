@@ -9,3 +9,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+from pydantic import BaseModel
+
+
+class ToolFunction(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: Optional[str] = None  # 可选字段，当通过提示词做工具调用时可能为空
+    type: str
+    function: ToolFunction
+    index: Optional[int] = None

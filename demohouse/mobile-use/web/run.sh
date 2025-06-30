@@ -1,3 +1,4 @@
+#!/bin/bash
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # Licensed under the 【火山方舟】原型应用软件自用许可协议
 # you may not use this file except in compliance with the License.
@@ -9,3 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+export PORT=${_BYTEFAAS_RUNTIME_PORT:-3000}
+export HOSTNAME="0.0.0.0"
+exec node .next/standalone/server.js

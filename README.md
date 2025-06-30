@@ -33,6 +33,7 @@
 | [视频实时理解](./demohouse/video_analyser/README.md)        | 多模态洞察，基于豆包-视觉理解模型实时视觉与语音理解。                                                            |
 | [实时对话式 AI](./demohouse/rtc_conversational_ai/README.md)       | 超低延迟的 AI 实时对话应用，更流畅，更自然，更实时。                                                           |
 | [AI-Media2Doc](https://github.com/hanshuaikang/AI-Media2Doc) | 一键将视频和音频转化为小红书/公众号/知识笔记/视频总结/思维导图等各种风格的文档, 可基于视频内容进行 AI 二次对话。                          |
+| [Mobile-Use](./demohouse/mobile-use/README_zh.md) | 基于火山引擎云手机与豆包视觉大模型能力，通过自然语言指令完成面向移动端场景自动化任务的 AI Agent 解决方案 |
 
 ## 相关指引
 

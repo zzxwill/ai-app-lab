@@ -9,3 +9,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+from mobile_agent.agent.tools.tool.abc import Tool
+
+
+class WaitTool(Tool):
+    def __init__(self):
+        super().__init__(
+            name="wait",
+            description="Sleep for t seconds number, wait for change,  t is lower than 10, higher than 0.",
+            parameters={
+                "t": {
+                    "type": "number",
+                    "description": "The time to wait in seconds",
+                }
+            },
+        )
+
+    async def handler(self, args: dict):
+        await asyncio.sleep(args.get("t"))
+        return f"已等待{args.get('t')}s"

@@ -9,3 +9,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Optional
+
+
+class SSEException(Exception):
+    """
+    SSE异常类，用于 agent 中主动断开 SSE 链接
+    """
+
+    def __init__(
+        self, code: Optional[int] = 200, message: Optional[str] = "SSE Closed"
+    ):
+        self.code = code
+        self.message = message
+        super().__init__(message)

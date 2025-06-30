@@ -9,3 +9,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Dict, Any, TypedDict
+
+
+class ToolCall(TypedDict):
+    name: str
+    arguments: Dict[str, Any] | None

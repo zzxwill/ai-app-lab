@@ -30,6 +30,7 @@ header:
       - 'demohouse/**/*.ts'
       - 'demohouse/**/*.tsx'
       - 'demohouse/**/*.js'
+      - 'demohouse/**/*.go'
 
     language:
       TSX:
@@ -37,5 +38,9 @@ header:
           - ".tsx"
           - ".ts"
         comment_style_id: DoubleSlash
-    
+      Go:
+        extensions:
+          - ".go"
+        comment_style_id: DoubleSlash
+
     comment: on-failure
