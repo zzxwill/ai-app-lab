@@ -10,7 +10,7 @@ import time
 from typing import AsyncGenerator
 import uuid
 import aiohttp
-from browser_use import Agent
+from my_browser_use.agent.service import MyAgent as Agent
 from browser_use.browser.browser import BrowserProfile, BrowserSession
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket
