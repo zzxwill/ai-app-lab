@@ -102,7 +102,7 @@ cp web/.env.example web/.env
 
 ### agent config
 ```bash
-MOBILE_USE_MCP_SSE_URL= # MCP_SSE service URL http://xxxx.com/sse, local url is http://localhost:8888/sse
+MOBILE_USE_MCP_URL= # MCP_SSE service URL http://xxxx.com/mcp, local url is http://localhost:8888/mcp
 
 TOS_BUCKET= # Volcengine Object Storage bucket
 TOS_REGION= # Volcengine Object Storage region

@@ -56,7 +56,7 @@ class MCPConfig(BaseModel):
     """MCP配置"""
 
     name: str = ""
-    sse_url: str = ""
+    url: str = ""
     headers: Dict[str, str] = Field(default_factory=dict, description="MCP请求头")
 
 
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
 
     mobile_use_mcp: MCPConfig = MCPConfig(
         name=MOBILE_USE_MCP_NAME,
-        sse_url=os.environ.get("MOBILE_USE_MCP_SSE_URL", ""),
+        url=os.environ.get("MOBILE_USE_MCP_URL", ""),
     )
 
     class Config:

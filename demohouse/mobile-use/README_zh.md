@@ -101,7 +101,7 @@ cp web/.env.example web/.env
 
 * **agent 配置说明**
 ```bash
-MOBILE_USE_MCP_SSE_URL= # MCP_SSE 服务地址 http://xxxx.com/sse
+MOBILE_USE_MCP_URL= # MCP_Streamable 服务地址 http://xxxx.com/mcp
 
 TOS_BUCKET= # 火山引擎对象存储桶
 TOS_REGION= # 火山引擎对象存储区域
@@ -126,7 +126,7 @@ CLOUD_AGENT_BASE_URL= # agent 服务地址
 启动MCP服务：
 ```bash
 cd mobile_use_mcp
-go run cmd/mobile_use_mcp/main.go  -t sse -p 8888
+go run cmd/mobile_use_mcp/main.go  -t streamable-http -p 8888
 ```
 
 启动 mobile agent 服务：

@@ -62,7 +62,7 @@ uv run main.py
 ### 配置说明
 
 ```bash
-MOBILE_USE_MCP_SSE_URL= # MCP_SSE 服务地址 http://xxxx.com/sse
+MOBILE_USE_MCP_URL= # MCP_SSE 服务地址 http://xxxx.com/sse
 
 TOS_BUCKET= # 火山引擎对象存储桶
 TOS_REGION= # 火山引擎对象存储区域

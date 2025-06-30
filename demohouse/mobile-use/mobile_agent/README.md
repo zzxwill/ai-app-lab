@@ -62,7 +62,7 @@ uv run main.py
 ### Configuration
 
 ```bash
-MOBILE_USE_MCP_SSE_URL= # MCP_SSE service URL http://xxxx.com/sse
+MOBILE_USE_MCP_URL= # MCP_SSE service URL http://xxxx.com/sse
 
 TOS_BUCKET= # Volcengine Object Storage bucket
 TOS_REGION= # Volcengine Object Storage region

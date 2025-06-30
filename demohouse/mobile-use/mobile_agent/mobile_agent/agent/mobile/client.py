@@ -42,8 +42,8 @@ class Mobile:
         self.mcp_hub.add_mcp_json(
             MOBILE_USE_MCP_NAME,
             {
-                "url": get_settings().mobile_use_mcp.sse_url,
-                "transport": "sse",
+                "url": get_settings().mobile_use_mcp.url,
+                "transport": "streamable_http",
                 "headers": {
                     "Authorization": auth_token,
                     "X-ACEP-DeviceId": pod_id,
