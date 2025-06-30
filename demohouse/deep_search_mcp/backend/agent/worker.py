@@ -80,7 +80,6 @@ class Worker(Agent):
                 self.record_usage(chunk, global_state.custom_state.total_usage)
                 if isinstance(chunk, ToolChunk):
                     if chunk.tool_exception or chunk.tool_response:
-                        print("tool", chunk.model_dump())
                         # post
                         event = convert_post_tool_call_to_event(
                             function_name=chunk.tool_name,
@@ -88,7 +87,6 @@ class Worker(Agent):
                             function_result=chunk.tool_response,
                             exception=chunk.tool_exception,
                         )
-                        print("event", event.model_dump())
                         yield event
 
                         if "create_browser_use_task" in chunk.tool_name:
