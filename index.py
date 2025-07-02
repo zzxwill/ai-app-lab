@@ -25,7 +25,7 @@ from my_browser_use.agent.prompts import load_system_prompt, load_extend_prompt
 from my_browser_use.controller.service import MyController
 from task import TaskManager
 from utils import ModelLoggingCallback, check_llm_config, enforce_log_format
-from my_browser_use.i18n import _, translate_planning_step_data
+from my_browser_use.i18n import _, translate_planning_step_data, set_language
 
 from browser_use.agent.views import (
 	AgentOutput,
@@ -54,6 +54,8 @@ CURRENT_CDP_PORT = 9222
 
 # Global task queue and task storage
 taskManager = TaskManager()
+
+set_language(os.getenv("LANGUAGE", "en"))
 
 
 def format_sse(data: dict) -> str:
@@ -262,6 +264,9 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     default_headers={
                         "X-Client-Request-Id": "vefaas-browser-use-20250403"}
                 )
+
+                language = os.getenv("LANGUAGE", "en")
+
                 agent = Agent(
                     task=task,
                     llm=llmOpenAI,
@@ -280,7 +285,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     controller=MyController(),
                     override_system_message=load_system_prompt(),
                     extend_planner_system_message=load_extend_prompt(),
-                    language="zh-CN"
+                    language=language
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
