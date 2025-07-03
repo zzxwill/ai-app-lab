@@ -9,3 +9,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+路由注册模块
+"""
+
+from fastapi import FastAPI
+from mobile_agent.routers import session, agent
+
+
+def register_routers(app: FastAPI):
+    """
+    注册所有路由到FastAPI应用
+
+    Args:
+        app: FastAPI应用实例
+    """
+    # 注册聊天相关路由
+    app.include_router(session.router)
+
+    # 注册智能代理相关路由
+    app.include_router(agent.router)

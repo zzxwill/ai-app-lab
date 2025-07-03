@@ -9,3 +9,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+class APIException(Exception):
+    """
+    API异常类，用于在路由处理中抛出自定义错误
+    """
+
+    def __init__(self, code: int, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)
