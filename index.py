@@ -249,8 +249,10 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                 # It's a workaround as ChatOpenAI will check the api key
                 os.environ["OPENAI_API_KEY"] = "sk-dummy"
 
+                base_url = os.getenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+
                 llmOpenAI = ChatOpenAI(
-                    base_url=os.getenv("ARK_API_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+                    base_url=base_url,
                     model=os.getenv("ARK_MODEL_ID"),
                     api_key=os.getenv("ARK_API_KEY"),
                     default_headers={
@@ -258,7 +260,7 @@ async def run_task(task: str, task_id: str, current_port: int) -> AsyncGenerator
                     callbacks=[ModelLoggingCallback()],
                 )
                 extract_llm = ChatOpenAI(
-                    base_url=os.getenv("ARK_API_URL", "https://ark.cn-beijing.volces.com/api/v3"),
+                    base_url=base_url,
                     model=os.getenv("ARK_EXTRACT_MODEL_ID"),
                     api_key=os.getenv("ARK_API_KEY"),
                     default_headers={
