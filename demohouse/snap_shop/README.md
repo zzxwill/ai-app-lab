@@ -43,16 +43,14 @@
 
 ```Shell
 ├── src
-│   ├── api                             
+│   ├── api
 │   │   └── llm.ts                      # LLM 对话实现
-│   ├── pages
-│   │   └── entry                       # webview 总入口
-│   │       ├── context                 # 全局状态管理
-│   │       ├── index.css
-│   │       ├── index.tsx
-│   │       ├── routes                  # 组件级页面路由
-│   │       │   ├── recognition        # 识别中页面
-│   │       └── utils.ts
+│   ├── routes                          # 路由配置
+│   │   └── recognition                 # 识别中页面
+│   ├── utils
+│       └── index.ts                    # 工具函数
+│   ├── App.tsx                         # 应用总入口
+│   ├── index.tsx                       # 编译入口
 ```
 
 ### 对话实现
@@ -60,67 +58,56 @@
 以下是请求 Bot 接口的代码示例，展示了如何与大模型进行交互：
 
 ```TypeScript
-import { appletRequest, StreamEvent } from '@ai-app/bridge-api';
-
 // 定义接口的基础 URL、使用的Bot ID以及 API Key
-static BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-static MODEL = 'bot-xxx';
-static APIKEY = 'xxx';
-static image_url = 'data:image/jpeg;base64,***' // 或图片url链接
+const BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
+const MODEL = 'bot-xxx';
+const APIKEY = 'xxx';
+const image_url = 'data:image/jpeg;base64,***' // 或图片url链接
 
-const handle = await appletRequest({
-  url: `${this.BASE_URL}/bots/chat/completions`,
-  method: 'POST',
-  header: {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${this.TEACHER_APIKEY}`,
-    Accept: 'text/event-stream'
-  },
-  body: {
-    model: this.TEACHER_MODEL,
-    messages: [
-      {
-        role: 'user',
-        content: [
+const response = async (image_url: string) {
+    const response = await fetch(`${BASE_URL}/bots/chat/completions`,{
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${APIKEY}`,
+        Accept: 'text/event-stream'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        stream: true,
+        messages: [
           {
-            type: 'image_url',
-            image_url: {
-              url: this.image_url
-            }
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: {
+                  url: image_url
+                }
+              }
+            ]
           }
-        ]
-      }
-    ],
-    stream: true
-  },
-  addCommonParams: false,
-  streamType: 'sse'
-});
+        ],
+        metadata: {
+          search: true
+        }
+      }),
+    });
+  }
 ```
 
 ### UI交互设计实现
 
-1. **单 webview 入口**：本应用采用单 webview 入口的设计，实现了类似单页应用（SPA）的体验。将所有页面以组件的方式进行实现，并通过全局状态管理来实现路由的跳转以及参数的传递，确保用户在不同页面之间的切换流畅自然。以下是相关代码示例：
+1. **单 webview 入口**：本应用采用单 webview 入口的设计，实现了类似单页应用（SPA）的体验。将所有页面以组件的方式进行实现，确保用户在不同页面之间的切换流畅自然。以下是相关代码示例：
 
 ```typescript
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { definePage } from '@ai-app/agent';
 import Recognition from './routes/recognition';
-import Confirm from './routes/confirm';
-import { RouterContext } from './context/routerContext/context';
-
 import './index.css';
-import { RecognitionResult } from 'src/pages/entry/routes/recognition-result';
 
-const App = () => {
-  const [route, setRoute] = useState('recognition');
-  const [safeArea, setSafeArea] = useState({ top: 0, bottom: 0 });
-
-  const navigate = (path: string, pageData?: Record<string, any>) => {
-    setQuery(pageData || {});
-    setRoute(path);
-  };
+function App() {
+  const [route] = useState('recognition');
 
   const renderRoute = () => {
     switch (route) {
@@ -128,60 +115,20 @@ const App = () => {
         return <Recognition />;
       }
       default: {
-        return <Recognition />;
+        return <div>404</div>;
       }
     }
   };
 
   return (
-    <RouterContext.Provider>
-      <div style={{ paddingTop: safeArea.top, paddingBottom: safeArea.bottom }} className="entry">
-        {renderRoute()}
-      </div>
-    </RouterContext.Provider>
+    <div>
+      {renderRoute()}
+    </div>
   );
-};
-
-export default definePage({
-  aiMeta: {
-    id: 'recognition',
-    description: '识别页面'
-  },
-
-  render(props) {
-    return <App />;
-  }
-});
-```
-
-2. **消息渲染实现**：对于 bot 消息，采用流式输出的方式，负责渲染思考链以及文本消息样式，具体实现代码如下：
-
-```TypeScript
-import { MdBox } from '@flow-web/md-box';
-
-const APP = () => {
-  const handle = await appletRequest({...})
-  handle.on(e: StreamEvent){
-    if(e.event === 'data'){
-        // handle Done
-        const text = e.data.replace(/^data:\s*/, '').trim();
-        if(text ==='[DONE]') return;
-        // handle finish reason        
-        const json = JSON.parse(text);
-        // handle tool
-        const tool_details = json?.bot_usage?.action_details[0]?.tool_details;
-        tool_details && updateData(tool_details)
-    } else if (e.event === 'complete') {
-     // handle complete    
-    } else if (event.event === 'error') {
-     // handle error
-    }
-  }
-
-  render(){
-    return renderToolResult();
-  }
 }
+
+export default App;
+
 ```
 
 ## 目录结构
@@ -190,28 +137,24 @@ const APP = () => {
 
 ```Bash
 .
-├── applet.config.ts
-├── package.json                          # 项目依赖包管理
+├── package.json                        # 项目依赖包管理
 ├── pnpm-lock.yaml
+├── postcss.config.js
+├── rsbuild.config.ts
 ├── postcss.config.cjs
 ├── src
-│   ├── api                             
-│   │   ├── bridge.ts                   # 原生 API 桥接层
+│   ├── api
 │   │   └── llm.ts                      # LLM 对话实现
-│   ├── app.ts
-│   ├── components
 │   ├── images
-│   ├── pages
-│   │   └── entry                       # webview 总入口
-│   │       ├── components
-│   │       ├── context                 # 全局状态管理
-│   │       ├── index.css
-│   │       ├── index.tsx
-│   │       ├── routes                  # 组件级页面路由
-│   │       │   ├── recognition        # 识别结果页面
-│   │       └── utils.ts
 │   └── types
 │       └── index.ts
-├── tailwind.config.js                   # tailwind 配置
+│   ├── routes                          # 路由配置
+│   │   └── recognition                 # 识别中页面
+│   ├── utils                           # 工具函数
+│       └── index.ts
+│   ├── App.tsx                         # 应用总入口
+│   ├── index.tsx                       # 编译入口
+│   ├── index.css                       # 全局样式
+├── tailwind.config.js                  # tailwind 配置
 └── tsconfig.json
 ```
