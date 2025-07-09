@@ -30,7 +30,7 @@ RUN set -eux; \
     if [ "$TARGETARCH" = "amd64" ]; then \
         CHROMIUM_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1747194348chromium-browser-use-stable_117.0.5938.60-1_amd64.deb"; \
     else \
-        CHROMIUM_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1747194348chromium-browser-use-stable_117.0.5938.60-1_arm64.deb"; \
+        CHROMIUM_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1751460803chromium-browser-use-stable_117.0.5938.60-1_arm64.deb"; \
     fi; \
     curl -o /tmp/chromium.deb "$CHROMIUM_URL"; \
     apt-get install -y --no-install-recommends /tmp/chromium.deb; \
