@@ -22,9 +22,17 @@ RUN apt-get update && apt-get install -y \
 # Install internal chrome version
 ARG PIP_INDEX_URL
 ARG PIP_TRUSTED_HOST
-ARG SRC_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1747194348chromium-browser-use-stable_117.0.5938.60-1_amd64.deb"
-RUN set -eux; apt-get update; \
-    curl -o /tmp/chromium.deb "${SRC_URL}"; \
+ARG TARGETARCH
+
+# 根据架构选择不同的Chromium安装包
+RUN set -eux; \
+    apt-get update; \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        CHROMIUM_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1747194348chromium-browser-use-stable_117.0.5938.60-1_amd64.deb"; \
+    else \
+        CHROMIUM_URL="https://lf3-ttcdn-tos.pstatp.com/obj/rocketpackagebackup/tmp_apks/1747194348chromium-browser-use-stable_117.0.5938.60-1_arm64.deb"; \
+    fi; \
+    curl -o /tmp/chromium.deb "$CHROMIUM_URL"; \
     apt-get install -y --no-install-recommends /tmp/chromium.deb; \
     apt-get clean -y; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*
