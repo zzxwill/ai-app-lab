@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">手机助手</string>
+    <string name="pref_key_url" translatable="false">multimodal_web_url</string>
+
+    <string name="floating_in_progress">正在思考...</string>
+    <string name="floating_in_start">连接中</string>
+    <string name="floating_in_play">正在回复</string>
+    <string name="floating_in_error">点击重试</string>
+    <string name="floating_close_ui_assistant">关闭助手</string>
+    <string name="floating_error_tip">出现错误: %s</string>
+    <string name="warning_permission_denied">需要开启权限才能启动AI助手</string>
+
+</resources>

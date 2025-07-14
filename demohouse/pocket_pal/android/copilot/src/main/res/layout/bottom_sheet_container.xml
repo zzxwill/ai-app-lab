@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- 你的主要内容 -->
+
+    <com.bytedance.ai.multimodal.copilot.view.bottomsheet.BottomSheetLayout
+        android:id="@+id/bottom_sheet_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <!-- 底部面板的内容 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical" >
+
+            <!-- 顶部拖动条 -->
+            <View
+                android:id="@+id/bottom_sheet_bar"
+                android:layout_width="65dp"
+                android:layout_height="4dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/bottom_sheet_bar_bg" />
+
+            <WebView
+                android:id="@+id/web_page"
+                app:layout_constraintBottom_toTopOf="@id/btn_close"
+                android:orientation="vertical"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+
+<!--            <FrameLayout-->
+<!--                android:id="@+id/web_view_parent"-->
+<!--                android:layout_width="match_parent"-->
+<!--                android:layout_height="match_parent"-->
+<!--                android:orientation="vertical"-->
+<!--                app:layout_constraintBottom_toTopOf="@id/btn_close" />-->
+
+        </LinearLayout>
+
+    </com.bytedance.ai.multimodal.copilot.view.bottomsheet.BottomSheetLayout>
+</FrameLayout>
