@@ -2,7 +2,7 @@
 
 ### 应用介绍
 
-手机助手为移动端即时需求而生，是一个基于豆包 - 图像理解模型的同屏交互系统。无论用户处于何种界面，只需唤醒语音助手，便能即刻享受全场景服务。从日程的智能管理，到朋友圈创意文案的生成，手机助手实现了「所见即所说」的立体交互模式，能够精准洞悉用户需求，广泛覆盖生活中的高频场景。
+基于豆包-图像理解模型的同屏交互系统，专为移动端即时需求设计的创作中枢，用户在任意界面唤醒助手，即刻获得日程智能管理、朋友圈创意文案生成等全场景服务，实现「所见即所说」的立体交互，精准理解用户需求，覆盖大量生活高频场景。
 
 以下是核心应用场景介绍：
 - 实时翻译：在外就餐时，面对外国菜单，轻松实现实时翻译。
@@ -34,8 +34,7 @@
 #### 相关模型
 
 - Doubao-流式语音识别：将用户的语音提问转写为文本，以便于大模型对用户问题的理解与回复。
-- Doubao-1.5-vision-pro-32k：负责对实时捕捉的屏幕截图进行视觉内容理解，并结合当前画面回答用户的问题。
-- DeepSeek-R1：负责对AI帮写等场景，进行深度思考并回答。
+- Doubao-Seed-1.6：负责对实时捕捉的屏幕截图进行视觉内容理解，结合当前画面进行深度思考并回答。
 - Doubao-语音合成：负责将模型生成的文本回答转化为自然流畅的语音输出。
 
 #### 流程架构
@@ -47,12 +46,11 @@
 
 ### 费用说明
 
-|相关服务    |描述    |计费说明    |
-|-|-|-|
-|[Doubao-流式语音识别](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=seedasr-streaming)    |将用户的语音提问转写为文本，以便于视觉大模型对用户问题的理解与回复。    |[多种计费方式](https://www.volcengine.com/docs/82379/1099320)    |
-|[Doubao-1.5-vision-pro-32k](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=doubao-1-5-vision-pro-32k)         |负责对实时捕捉的屏幕截图进行视觉内容理解，并结合当前画面回答用户的问题。         |[多种计费方式](https://www.volcengine.com/docs/82379/1099320)    |
-|[DeepSeek-R1](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=deepseek-r1)    |负责对AI帮写等场景，进行深度思考并回答。    |[多种计费方式](https://www.volcengine.com/docs/82379/1099320)    |
-|[Doubao-语音合成](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=ve-tts)    |负责将模型生成的文本回答转化为自然流畅的语音输出。    |[多种计费方式](https://www.volcengine.com/docs/82379/1099320)         |
+| 相关服务 | 描述 | 计费说明 |
+| --- | --- | --- |
+| [Doubao-流式语音识别](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=seedasr-streaming) | 将用户的语音提问转写为文本，以便于视觉大模型对用户问题的理解与回复。 | [多种计费方式](https://www.volcengine.com/docs/82379/1099320) |
+| [Doubao-Seed-1.6](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=doubao-seed-1-6) | 负责对实时捕捉的屏幕截图进行视觉内容理解，结合当前画面进行深度思考并回答。 | [多种计费方式](https://www.volcengine.com/docs/82379/1099320) 
+| [Doubao-语音合成](https://console.volcengine.com/ark/region:ark+cn-beijing/model/detail?Id=ve-tts) | 负责将模型生成的文本回答转化为自然流畅的语音输出。 | [多种计费方式](https://www.volcengine.com/docs/82379/1099320) |\
 
 ### 技术实现
 
