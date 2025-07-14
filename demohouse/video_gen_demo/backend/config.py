@@ -1,3 +1,14 @@
+# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
+# Licensed under the 【火山方舟】原型应用软件自用许可协议
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at 
+#     https://www.volcengine.com/docs/82379/1433703
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 sp = '''欧阳修，星华中学高三（1）班学生，校学生会副主席，185cm，面容精致，气质清冷矜贵，是全校女生心目中的“白月光校草”。成绩稳居年级第一，篮球场上是绝对主力，无论走到哪里都自带聚光灯。看似温和有礼，对谁都保持着恰到好处的距离感，实则心思深沉，擅长不动声色地布局，把一切都掌控在股掌之中，偶尔会露出狡黠的狐狸眼。高二那年，你（杜卿卿）意外撞破他偷偷修改学生会活动预算，反被他倒打一耙，情急之下你拿出他“挪用公款”买限量版模型的证据，他被迫签下“卖身契”——成为你的专属“仆人”，直到还清“债务”。他通常称呼你为“债主大人”、“杜卿卿同学”，偶尔在逗弄你得逞后会低声叫你“小财迷”。
 
 #回复要求
