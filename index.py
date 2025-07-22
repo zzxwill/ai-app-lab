@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_openai import ChatOpenAI
+from browser_use.llm import ChatOpenAI
 from pydantic import BaseModel, SecretStr
 from browser_use import Agent, BrowserProfile, BrowserSession
 
@@ -80,9 +80,6 @@ async def gen_step_callback_result(model_output: AgentOutput, step_number: int):
             actions = []
             for a in model_output.action:
                 actions.append(a.model_dump(exclude_none=True))
-                # pause agent if pause action is found
-                if a.pause:
-                    conversation_update["task_status"] = "paused"
             conversation_update['actions'] = actions
 
         return conversation_update
@@ -154,7 +151,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         browser_profile = BrowserProfile(
             headless=headless,
             disable_security=True,
-            highlight_elements=False,
+            highlight_elements=True,
             wait_between_actions=1,
         )
         browser_session = BrowserSession(
@@ -174,45 +171,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
         pause_counter = 0
         async def new_step_callback_wrapper(browser_state_summary, model_output, step_number):
             conversation_update = await gen_step_callback_result(model_output, step_number)
-            if conversation_update["task_status"] == "paused":
-                logging.info("Pausing agent due to pause action")
-                agent.pause()
-
-                # Schedule a timeout to stop the agent if it's still paused after 1 minute
-                async def delayed_stop():
-                    nonlocal pause_counter
-                    pause_counter += 1
-                    await asyncio.sleep(60*3)
-                    pause_counter -= 1
-                    msg = _("Task auto-stopped after 3 minutes in paused state")
-                    if agent.state.paused:
-                        if pause_counter > 0:
-                            logging.info("Still has paused task, skipping, pause_count=%d", pause_counter)
-                            return
-                        timeout_msg = format_sse({
-                            "task_id": task_id,
-                            "status": "error",
-                            "metadata": {
-                                "type": "message",
-                                "data": {
-                                    "message": msg
-                                 }
-                            }
-                        })
-                        await send_sse_message(timeout_msg)
-                        agent.stop()
-                        taskManager.update_task(task_id, {
-                            "status": "failed",
-                            "error": msg,
-                            'failed_at': datetime.now().isoformat()
-                        })
-                        logging.info('closing playwright driver and browser')
-                        browser_cdp = taskManager.get_task_by_id(task_id)['browser']
-                        if browser_cdp:
-                            await browser_cdp.stop()
-                        logging.info("Agent auto-stopped due to timeout")
-
-                asyncio.create_task(delayed_stop())
                 
             # Update active_tasks with current step and goal
             taskManager.update_task(task_id, {
@@ -295,7 +253,7 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     api_key=os.getenv("ARK_API_KEY"),
                     default_headers={
                         "X-Client-Request-Id": "vefaas-browser-use-20250403"},
-                    callbacks=[ModelLoggingCallback()],
+                    # callbacks=[ModelLoggingCallback()],
                 )
                 extract_llm = ChatOpenAI(
                     base_url=base_url,
@@ -304,14 +262,11 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     default_headers={
                         "X-Client-Request-Id": "vefaas-browser-use-20250403"}
                 )
-
-                language = os.getenv("LANGUAGE", "en")
-
+                
                 agent = Agent(
                     task=task,
                     llm=llmOpenAI,
-                    tool_calling_method=os.getenv(
-                        "ARK_FUNCTION_CALLING", "raw").lower(),
+                    tool_calling_method=os.getenv("ARK_FUNCTION_CALLING", "function_calling").lower(),
                     browser_session=browser_session,
                     register_new_step_callback=new_step_callback_wrapper,
                     # register_new_progress_callback=new_progress_callback,
@@ -325,7 +280,6 @@ async def run_task(task: str, task_id: str) -> AsyncGenerator[str, None]:
                     controller=MyController(),
                     override_system_message=load_system_prompt(),
                     extend_planner_system_message=load_extend_prompt(),
-                    language=language
                 )
             else:
                 raise ValueError(f"Unknown LLM type: {llm_name}")
@@ -531,41 +485,6 @@ async def stream_task_results(task_id: str):
                 break
 
     return StreamingResponse(running_task_generator(), media_type="text/event-stream")
-
-@app.post("/tasks/{task_id}/resume")
-async def resume_task(task_id: str):
-    """Resume a task that was previously paused"""
-    task_info = taskManager.get_task_by_id(task_id)
-    if not task_info:
-        raise HTTPException(status_code=http.HTTPStatus.NOT_FOUND, detail="Task not found")
-    if task_info['status'] != 'paused':
-        raise HTTPException(status_code=http.HTTPStatus.BAD_REQUEST, detail="Task is not paused")
-    agent: Agent = task_info["agent"]
-    if not agent:
-        raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail="Agent not found")
-    try:
-        agent.resume()
-        task_info['status'] = 'running'
-    except Exception as e:
-        if agent.state.paused == True:
-            logging.error(f"Failed to resume agent: {str(e)}")
-            raise
-    return JSONResponse(content={"message": "Task resumed successfully"})
-
-@app.post("/tasks/{task_id}/pause")
-async def pause_task(task_id: str):
-    """Pause a task that was previously running"""
-    task_info = taskManager.get_task_by_id(task_id)
-    if not task_info:
-        raise HTTPException(status_code=http.HTTPStatus.NOT_FOUND, detail="Task not found")
-    if task_info['status']!= 'running':
-        raise HTTPException(status_code=http.HTTPStatus.BAD_REQUEST, detail="Task is not running")
-    agent: Agent = task_info["agent"]
-    if not agent:
-        raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail="Agent not found")
-    agent.pause()
-    task_info['status'] = 'paused'
-    return JSONResponse(content={"message": "Task paused successfully"})
 
 @app.get("/tasks/{task_id}/devtools/json/version")
 async def json_version(task_id: str):
