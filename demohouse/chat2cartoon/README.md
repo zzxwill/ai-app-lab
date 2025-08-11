@@ -18,20 +18,16 @@
 
 ### 相关模型
 
-- Doubao-pro-32k：根据用户的主题需求，生成故事大纲与分镜脚本，并提供角色设定、首帧图、视频、音频等素材的创作提示词。
-- Doubao-文生图：根据提示词描述创作具体的故事角色和分镜画面。
+- Doubao-Seed-1.6：根据用户的主题需求，生成故事大纲与分镜脚本，并提供角色设定、首帧图、视频、音频等素材的创作提示词。
+- Doubao-Seedream-3.0-t2i：根据提示词描述创作具体的故事角色和分镜画面。
 - Doubao-语音合成：根据分镜台词及角色特点所匹配音色等创作提示词，生成配音文件。
-- Doubao-视频生成：根据分镜首帧图及创作提示词，生成分镜动画视频。
-- Doubao-vision-pro-32k：在充分理解当前视频动画画面和故事情节的基础上，针对用户提问提供精准回答。
+- Doubao-Seedance-1.0-lite：根据分镜首帧图及创作提示词，生成分镜动画视频。
+- Doubao-1.5-thinking-vision-pro/250428：在充分理解当前视频动画画面和故事情节的基础上，针对用户提问提供精准回答。
 - Doubao-流式语音识别：将用户的语音提问转写为文本，以便于视觉大模型对用户问题的理解与回复。
-
-### 流程架构
-![dependencies.jpeg](./assets/dependencies.jpeg)
-后端服务可以本地启动，也可以部署到火山引擎函数服务。
 
 ## 环境准备
 
-- Python 版本要求大于等于 3.8，小于 3.12
+- Python 版本要求大于等于 3.8，小于 3.10(视频剪辑依赖MoviePy，其他版本的Python可能有不兼容问题)
 - Poetry 1.6.1 版本 [参考文档](https://python-poetry.org/docs/#installing-with-the-official-installer)
 - Node 版本要求大于等于 16.2.0
 - 获取语音技术产品的 APP ID 和 Access Token，获取方式参见【附录】
@@ -53,20 +49,6 @@
    ```
    
 2. 修改 `backend/.env` 中配置，填入各配置变量的值
-
-   | 配置变量名               | 说明                                    |
-   |:--------------------|:--------------------------------------|
-   | TTS_ACCESS_TOKEN      | 语音合成模型 Access Token                  |
-   | TTS_APP_ID         | 语音合成模型 APP ID                          |
-   | ARK_API_KEY         | 火山方舟 API Key，用于方舟模型接入点推理时做鉴权          |
-   | VOLC_ACCESSKEY     | 火山引擎账号 Access Key，用于访问 TOS API，上载模型产物 |
-   | VOLC_SECRETKEY     | 火山引擎账号 Secret Key，用于访问 TOS API，上载模型产物 |
-   | TOS_BUCKET          | 指定生视频模型和配音模型产物的 TOS 储存桶名              |
-   | LLM_ENDPOINT_ID     | 脚本创作，分镜，角色和视频描述，调用的大模型接入点 ID          |
-   | VLM_ENDPOINT_ID     | 最终视频影片交互，调用的视觉理解大模型接入点 ID             |
-   | CGT_ENDPOINT_ID     | 生视频大模型接入点 ID（暂时只支持 Doubao-视频生成模型）     |
-
-    > LLM_ENDPOINT_ID 必须使用 Doubao-pro-32k 的接入点，否则项目效果会不稳定。
 
 3. 安装项目的 python 依赖
 
@@ -125,15 +107,10 @@
 │   ├── message_utils.py
 │   ├── mode.py  
 │   └── output_parsers.py
-├── lib         # 媒体文件
-│   ├── background_music.mp3    # 视频背景音乐
+├── media                       # 媒体文件
 │   └── DouyinSansBold.otf      # 字幕font
 ├── poetry.lock
 ├── pyproject.toml      # 项目依赖包管理
-└── tests               # 单元测试/集成测试/e2e测试
-    ├── assets        # 单测样本
-    ├── e2e_tests     # 集成测试
-    └── unit_tests    # 单元测试
 
 ```
 

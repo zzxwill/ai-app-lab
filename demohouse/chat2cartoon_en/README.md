@@ -25,10 +25,6 @@ Innovative Empowerment for Education: Deeply integrates into the education secto
 
 - ByteDance-Seedance-1.0-lite: Generates animated video clips for the storyboard based on the first frame image and creative prompts.
 
-### Architecture
-![dependencies.jpeg](./assets/dependencies.jpeg)
-The backend service can be run locally or deployed to Volcengine Function Service.
-
 ## Environment Setup
 - Python version >= 3.8 and <= 3.9(Other versions may be not compatible with the MoviePy package)
 - Poetry version 1.6.1 [See Docs](https://python-poetry.org/docs/#installing-with-the-official-installer)
