@@ -1,34 +1,28 @@
-# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
-# Licensed under the 【火山方舟】原型应用软件自用许可协议
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at 
-#     https://www.volcengine.com/docs/82379/1433703
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License. 
-
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv("../.env")
-
 REGION = "cn-beijing"
-ARK_SERVICE_NAME = os.getenv("ARK_SERVICE_NAME", "ARK")
-ARK_ACCESS_KEY = os.getenv("VOLC_ACCESSKEY")
-ARK_SECRET_KEY = os.getenv("VOLC_SECRETKEY")
-ARK_API_KEY = os.getenv("ARK_API_KEY")
+ARK_SERVICE_NAME = os.getenv("ARK_SERVICE_NAME", "ark_stg")
+ARK_API_VERSION = "2024-01-01"
+ARK_HOST = "open.volcengineapi.com"
+ARK_ACCESS_KEY = os.getenv("TOS_ACCESSKEY")
+ARK_SECRET_KEY = os.getenv("TOS_SECRETKEY")
 
-ARTIFACT_TOS_BUCKET = os.getenv("TOS_BUCKET", "")
+ARTIFACT_TOS_BUCKET = os.getenv("TOS_BUCKET", "ark-bot-child-story-demo-stg")
+
+FILM_INTERACTION_TIMEOUT_TIME_IN_SECONDS = 60
 
 LLM_ENDPOINT_ID = os.getenv("LLM_ENDPOINT_ID", "")
 VLM_ENDPOINT_ID = os.getenv("VLM_ENDPOINT_ID", "")
 CGT_ENDPOINT_ID = os.getenv("CGT_ENDPOINT_ID", "")
 
-TTS_APP_ID = os.getenv("TTS_APP_ID", "")
-TTS_ACCESS_TOKEN = os.getenv("TTS_ACCESS_TOKEN", "")
+API_KEY = os.getenv("API_KEY", "")
+
+TTS_NAMESPACE = os.getenv("TTS_NAMESPACE", "")
+TTS_DEFAULT_SPEAKER = os.getenv("TTS_SPEAKER", "zh_female_sajiaonvyou_moon_bigtts")
+TTS_API_RESOURCE_ID = os.getenv("TTS_API_RESOURCE_ID", "")
+TTS_APP_KEY = os.getenv("TTS_APP_KEY", "")
+TTS_ACCESS_KEY = os.getenv("TTS_ACCESS_KEY", "")
+TTS_BASE_URL = os.getenv("TTS_BASE_URL", "")
 TTS_INT_SIZE = 4
 
 ONE_DAY_IN_SECONDS = 60 * 60 * 24
