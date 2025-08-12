@@ -1,34 +1,19 @@
-# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
-# Licensed under the 【火山方舟】原型应用软件自用许可协议
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at 
-#     https://www.volcengine.com/docs/82379/1433703
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License. 
-
 import time
 from typing import AsyncIterable
 
+from arkitect.core.component.llm.model import ArkMessage, ArkChatRequest, ArkChatResponse, ArkChatCompletionChunk
+from arkitect.utils.context import get_reqid, get_resource_id
+from arkitect.core.errors import InvalidParameter
 from volcenginesdkarkruntime.types.chat.chat_completion_chunk import Choice, ChoiceDelta
 
 from app.clients.llm import LLMClient
 from app.constants import LLM_ENDPOINT_ID
 from app.generators.base import Generator
-from app.generators.phase import Phase
+from app.generators.phase import Phase, PhaseFinder
+from app.generators.phases.common import get_correction_completion_chunk
+from app.logger import ERROR
 from app.mode import Mode
-from app.output_parsers import OutputParser, parse_first_frame_description
-from arkitect.core.component.llm.model import (
-    ArkChatCompletionChunk,
-    ArkChatRequest,
-    ArkChatResponse,
-    ArkMessage,
-)
-from arkitect.core.errors import InvalidParameter
-from arkitect.telemetry.logger import ERROR
-from arkitect.utils.context import get_reqid, get_resource_id
+from app.output_parsers import parse_first_frame_description
 
 FIRST_FRAME_DESCRIPTION_SYSTEM_PROMPT = ArkMessage(
     role="system",
@@ -76,7 +61,7 @@ phase=FirstFrameDescription
 - 不能出现少儿不宜、擦边、违禁、色情的词汇。
 - 不能回复与小朋友有接触的语句。
 - 不能询问家庭住址等敏感信息。
-""",
+"""
 )
 
 
@@ -84,102 +69,96 @@ class FirstFrameDescriptionGenerator(Generator):
     llm_client: LLMClient
     request: ArkChatRequest
     mode: Mode
-    output_parser: OutputParser
+    phase_finder: PhaseFinder
 
-    def __init__(self, request: ArkChatRequest, mode: Mode = Mode.CONFIRMATION):
+    def __init__(self, request: ArkChatRequest, mode: Mode.NORMAL):
         super().__init__(request, mode)
-        self.llm_client = LLMClient(LLM_ENDPOINT_ID)
-        self.output_parser = OutputParser(request)
+        chat_endpoint_id = LLM_ENDPOINT_ID
+        if request.metadata:
+            chat_endpoint_id = request.metadata.get("chat_endpoint_id", LLM_ENDPOINT_ID)
+
+        self.llm_client = LLMClient(chat_endpoint_id)
+        self.phase_finder = PhaseFinder(request)
         self.request = request
         self.mode = mode
 
     async def generate(self) -> AsyncIterable[ArkChatResponse]:
-        # extract script, storyboard and role description to use as context for first
-        # frame description generation
-        script = self.output_parser.get_script()
-        storyboards, _ = self.output_parser.get_storyboards()
-        role_descriptions = self.output_parser.get_role_descriptions()
+        if self.mode == Mode.CORRECTION:
+            yield get_correction_completion_chunk(self.request.messages[-1], Phase.FIRST_FRAME_DESCRIPTION)
+        else:
+            script = self.phase_finder.get_script()
+            storyboards, _ = self.phase_finder.get_storyboards()
+            role_descriptions = self.phase_finder.get_role_descriptions()
 
-        if len(script) == 0:
-            ERROR("script not found")
-            raise InvalidParameter("script not found")
+            if len(script) == 0:
+                ERROR("script not found")
+                raise InvalidParameter("script not found")
 
-        if len(role_descriptions) == 0:
-            ERROR("role descriptions not found")
-            raise InvalidParameter("messages", "role descriptions not found")
+            if len(role_descriptions) == 0:
+                ERROR("role descriptions not found")
+                raise InvalidParameter("messages", "role descriptions not found")
 
-        if len(storyboards) == 0:
-            ERROR("storyboards not found")
-            raise InvalidParameter("messages", "storyboards not found")
+            if len(storyboards) == 0:
+                ERROR("storyboards not found")
+                raise InvalidParameter("messages", "storyboards not found")
 
-        messages = [
-            FIRST_FRAME_DESCRIPTION_SYSTEM_PROMPT,
-            ArkMessage(
-                role="assistant", content=f"phase={Phase.SCRIPT.value}\n{script}"
-            ),
-            ArkMessage(role="user", content="下一步"),
-            ArkMessage(
-                role="assistant",
-                content=f"phase={Phase.STORY_BOARD.value}\n{storyboards}",
-            ),
-            ArkMessage(role="user", content="下一步"),
-            ArkMessage(
-                role="assistant",
-                content=f"phase={Phase.ROLE_DESCRIPTION.value}\n{role_descriptions}",
-            ),
-            ArkMessage(role="user", content=f"生成首帧视频画面的内容描述。"),
-        ]
+            messages = [
+                FIRST_FRAME_DESCRIPTION_SYSTEM_PROMPT,
+                ArkMessage(role="assistant", content=f"phase={Phase.SCRIPT.value}\n{script}"),
+                ArkMessage(role="user", content="下一步"),
+                ArkMessage(role="assistant", content=f"phase={Phase.STORY_BOARD.value}\n{storyboards}"),
+                ArkMessage(role="user", content="下一步"),
+                ArkMessage(role="assistant", content=f"phase={Phase.ROLE_DESCRIPTION.value}\n{role_descriptions}"),
+                ArkMessage(role="user", content=f"生成首帧视频画面的内容描述。"),
+            ]
 
-        if self.mode == Mode.CONFIRMATION:
-            async for resp in self.llm_client.chat_generation(messages):
-                yield resp
-        else:  # self.mode == Mode.REGENERATION:
-            completion = ""
-            async for chunk in self.llm_client.chat_generation(messages):
-                if not chunk.choices:
-                    continue
-                completion += chunk.choices[0].delta.content
-            new_first_frame_descriptions = parse_first_frame_description(completion)
+            if self.mode == Mode.REGENERATION:
+                completion = ""
+                async for chunk in self.llm_client.chat_generation(messages):
+                    if not chunk.choices:
+                        continue
+                    completion += chunk.choices[0].delta.content
 
-            # user request can include first_frame_descriptions field containing a list of descriptions they don't
-            # want regenerated, handle case by only filling in empty descriptions with the newly generated first
-            # frame descriptions
-            (
-                _,
-                previous_first_frame_descriptions,
-            ) = self.output_parser.get_first_frame_descriptions()
-            new_content = ""
-            for index, pffi in enumerate(previous_first_frame_descriptions):
-                if not pffi.description:
-                    pffi.description = new_first_frame_descriptions[index].description
-                    pffi.characters = new_first_frame_descriptions[index].characters
-                new_content += f"{pffi.to_content(index + 1)}\n"
+                new_first_frame_descriptions = parse_first_frame_description(completion)
 
-            yield ArkChatCompletionChunk(
-                id=get_reqid(),
-                choices=[
-                    Choice(
-                        index=0,
-                        delta=ChoiceDelta(
-                            content=f"phase={Phase.FIRST_FRAME_DESCRIPTION.value}\n\n{new_content}"
+                _, previous_first_frame_descriptions = self.phase_finder.get_first_frame_descriptions()
+                new_content = ""
+                for index, pffi in enumerate(previous_first_frame_descriptions):
+                    if not pffi.description:
+                        pffi.description = new_first_frame_descriptions[index].description
+                        pffi.characters = new_first_frame_descriptions[index].characters
+                    new_content += f"{pffi.to_content(index + 1)}\n"
+
+                yield ArkChatCompletionChunk(
+                    id=get_reqid(),
+                    choices=[
+                        Choice(
+                            index=0,
+                            delta=ChoiceDelta(
+                                content=f"phase={Phase.FIRST_FRAME_DESCRIPTION.value}\n\n{new_content}",
+                            ),
                         ),
-                    ),
-                ],
-                created=int(time.time()),
-                model=get_resource_id(),
-                object="chat.completion.chunk",
-            )
-
-            yield ArkChatCompletionChunk(
-                id=get_reqid(),
-                choices=[
-                    Choice(
+                    ],
+                    created=int(time.time()),
+                    model=get_resource_id(),
+                    object="chat.completion.chunk"
+                )
+                yield ArkChatCompletionChunk(
+                    id=get_reqid(),
+                    choices=[Choice(
                         index=1,
                         finish_reason="stop",
-                        delta=ChoiceDelta(content=""),
-                    )
-                ],
-                created=int(time.time()),
-                model=get_resource_id(),
-                object="chat.completion.chunk",
-            )
+                        delta=ChoiceDelta(
+                            role="assistant",
+                            finish_reason="stop",
+                            content="",
+                        )
+                    )],
+                    created=int(time.time()),
+                    model=get_resource_id(),
+                    object="chat.completion.chunk"
+                )
+
+            else:
+                async for resp in self.llm_client.chat_generation(messages):
+                    yield resp

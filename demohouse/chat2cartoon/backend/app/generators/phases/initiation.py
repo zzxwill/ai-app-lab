@@ -1,15 +1,7 @@
-# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
-# Licensed under the 【火山方舟】原型应用软件自用许可协议
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at 
-#     https://www.volcengine.com/docs/82379/1433703
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License. 
-
 from typing import AsyncIterable
+
+from arkitect.core.component.llm.model import ArkChatRequest, ArkMessage, ArkChatResponse
+from arkitect.core.errors import InternalServiceError
 
 from app.clients.llm import LLMClient
 from app.constants import LLM_ENDPOINT_ID
@@ -18,10 +10,8 @@ from app.generators.phase import Phase
 from app.generators.phases.role_description import RoleDescriptionGenerator
 from app.generators.phases.script import ScriptGenerator
 from app.generators.phases.storyboard import StoryBoardGenerator
+from app.logger import ERROR, INFO
 from app.mode import Mode
-from arkitect.core.component.llm.model import ArkChatRequest, ArkChatResponse, ArkMessage
-from arkitect.core.errors import InternalServiceError
-from arkitect.telemetry.logger import ERROR, INFO
 
 INITIATION_SYSTEM_PROMPT = ArkMessage(
     role="system",
@@ -69,7 +59,7 @@ INITIATION_SYSTEM_PROMPT = ArkMessage(
 用户：创作人物角色描述
 输出：RoleDescription
 
-""",
+"""
 )
 
 
@@ -78,9 +68,14 @@ class InitiationGenerator(Generator):
     request: ArkChatRequest
     mode: Mode
 
-    def __init__(self, request: ArkChatRequest, mode: Mode = Mode.CONFIRMATION):
+    def __init__(self, request: ArkChatRequest, mode: Mode.NORMAL):
         super().__init__(request, mode)
-        self.llm_client = LLMClient(LLM_ENDPOINT_ID)
+
+        chat_endpoint_id = LLM_ENDPOINT_ID
+        if request.metadata:
+            chat_endpoint_id = request.metadata.get("chat_endpoint_id", LLM_ENDPOINT_ID)
+
+        self.llm_client = LLMClient(chat_endpoint_id)
         self.request = request
         self.mode = mode
 
@@ -97,6 +92,9 @@ class InitiationGenerator(Generator):
             completion += chunk.choices[0].delta.content
 
         INFO(f"Initiation completion: {completion}")
+        INFO(f"Is SCRIPT in completion? {Phase.SCRIPT.value in completion}")
+        INFO(f"Is STORY_BOARD in completion? {Phase.STORY_BOARD.value in completion}")
+        INFO(f"Is ROLE_DESCRIPTION in completion? {Phase.ROLE_DESCRIPTION.value in completion}")
 
         if Phase.SCRIPT.value in completion:
             actual_generator = ScriptGenerator(self.request, self.mode)
@@ -105,9 +103,7 @@ class InitiationGenerator(Generator):
         elif Phase.ROLE_DESCRIPTION.value in completion:
             actual_generator = RoleDescriptionGenerator(self.request, self.mode)
         else:
-            ERROR(
-                f"failed to determine the phase, phase given by the llm is {completion}"
-            )
+            ERROR(f"failed to determine the phase, phase given by the llm is {completion}")
             raise InternalServiceError("failed to determine the phase")
 
         return actual_generator

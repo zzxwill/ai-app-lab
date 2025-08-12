@@ -1,100 +1,102 @@
-# Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
-# Licensed under the 【火山方舟】原型应用软件自用许可协议
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at 
-#     https://www.volcengine.com/docs/82379/1433703
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License. 
-
 import asyncio
 import json
 import time
-from typing import AsyncIterable, List, Tuple
+from typing import AsyncIterable, Tuple, List, Optional
 
+import requests
+import tos
+from arkitect.core.component.llm.model import ArkChatRequest, ArkChatResponse, ArkChatCompletionChunk
+from arkitect.utils.context import get_reqid, get_resource_id
+from arkitect.core.errors import InvalidParameter
+from volcenginesdkarkruntime.types.chat.chat_completion_chunk import ChoiceDelta, Choice, ChoiceDeltaToolCall, \
+    ChoiceDeltaToolCallFunction
 from volcenginesdkarkruntime import Ark
-from volcenginesdkarkruntime.types.chat.chat_completion_chunk import (
-    Choice,
-    ChoiceDelta,
-)
 
-from app.constants import (
-    CGT_ENDPOINT_ID,
-    MAX_STORY_BOARD_NUMBER,
-)
+from app.clients.ark_console import ArkConsoleClient, CreateVideoGenTaskRequest, TosLocation, TosConfig
+from app.clients.downloader import DownloaderClient
+from app.clients.tos import TOSClient
+from app.constants import ARTIFACT_TOS_BUCKET, MAX_STORY_BOARD_NUMBER, API_KEY, CGT_ENDPOINT_ID
 from app.generators.base import Generator
-from app.generators.phase import Phase
-from app.message_utils import extract_and_parse_dict_from_message
+from app.generators.phase import Phase, PhaseFinder
+from app.logger import ERROR, INFO
+from app.message_utils import extract_dict_from_message
 from app.mode import Mode
 from app.models.first_frame_image import FirstFrameImage
 from app.models.video import Video
 from app.models.video_description import VideoDescription
-from app.output_parsers import OutputParser
-from arkitect.core.component.llm.model import (
-    ArkChatCompletionChunk,
-    ArkChatRequest,
-    ArkChatResponse,
-)
-from arkitect.core.errors import InvalidParameter
-from arkitect.telemetry.logger import ERROR, INFO
-from arkitect.utils.context import get_reqid, get_resource_id
 
 
-def zip_video_descriptions_and_first_frame_images(
-    video_descriptions: List[VideoDescription],
-    first_frame_images: List[FirstFrameImage],
-) -> List[Tuple[int, VideoDescription, FirstFrameImage]]:
+def _merge_video_descriptions_and_first_frame_images(video_descriptions: List[VideoDescription],
+                                                     first_frame_images: List[FirstFrameImage]) -> List[
+    Tuple[int, VideoDescription, FirstFrameImage]]:
     video_descriptions_by_index = {i: s for i, s in enumerate(video_descriptions)}
     first_frame_images_by_index = {ffi.index: ffi for ffi in first_frame_images}
 
-    # zipped dictionaries with the same index
-    zipped = []
-    all_indices = set(video_descriptions_by_index.keys()) | set(
-        first_frame_images_by_index.keys()
-    )
+    # Merge dictionaries with the same index
+    merged = []
+    all_indices = set(video_descriptions_by_index.keys()) | set(first_frame_images_by_index.keys())
 
     for index in all_indices:
         if index not in video_descriptions_by_index:
             ERROR(f"failed to find index {index} in video_descriptions_by_index")
-            raise InvalidParameter(
-                "messages", f"failed to find index {index} in videos"
-            )
+            raise InvalidParameter("messages", f"failed to find index {index} in videos")
         if index not in first_frame_images_by_index:
             ERROR(f"failed to find index {index} in first_frame_images_by_index")
-            raise InvalidParameter(
-                "messages", f"failed to find index {index} in first_frame_images"
-            )
+            raise InvalidParameter("messages", f"failed to find index {index} in first_frame_images")
 
-        zipped.append(
-            (
-                index,
-                video_descriptions_by_index[index],
-                first_frame_images_by_index[index],
-            )
-        )
+        merged.append((index, video_descriptions_by_index[index], first_frame_images_by_index[index]))
 
-    return zipped
+    return merged
+
+
+def _get_tool_resp(index: int, content: Optional[str] = None) -> ArkChatCompletionChunk:
+    return ArkChatCompletionChunk(
+        id=get_reqid(),
+        choices=[Choice(
+            index=index,
+            finish_reason=None if content else "stop",
+            delta=ChoiceDelta(
+                role="tool",
+                content=f"{content}\n\n" if content else "",
+                tool_calls=[
+                    ChoiceDeltaToolCall(
+                        index=index,
+                        id="tool_call_id",
+                        function=ChoiceDeltaToolCallFunction(
+                            name="",
+                            arguments="",
+                        ),
+                        type="function",
+                    )
+                ]
+            )
+        )],
+        created=int(time.time()),
+        model=get_resource_id(),
+        object="chat.completion.chunk"
+    )
 
 
 class VideoGenerator(Generator):
-    ark_runtime_client: Ark
-    output_parser: OutputParser
+    content_generation_client: Ark
+    tos_client: TOSClient
+    downloader_client: DownloaderClient
+    phase_finder: PhaseFinder
     request: ArkChatRequest
     mode: Mode
 
-    def __init__(self, request: ArkChatRequest, mode: Mode = Mode.CONFIRMATION):
+    def __init__(self, request: ArkChatRequest, mode: Mode.NORMAL):
         super().__init__(request, mode)
-        self.ark_runtime_client = Ark()
-        self.output_parser = OutputParser(request)
+        self.content_generation_client = Ark(api_key=API_KEY, region="cn-beijing")
+        self.tos_client = TOSClient()
+        self.downloader_client = DownloaderClient()
+        self.phase_finder = PhaseFinder(request)
         self.request = request
         self.mode = mode
 
     async def generate(self) -> AsyncIterable[ArkChatResponse]:
-        # extract first frame images and video descriptions to generate videos
-        first_frame_images = self.output_parser.get_first_frame_images()
-        video_descriptions = self.output_parser.get_video_descriptions()
+        first_frame_images = self.phase_finder.get_first_frame_images()
+        video_descriptions = self.phase_finder.get_video_descriptions()
 
         if not first_frame_images:
             ERROR("first frame images not found")
@@ -106,33 +108,28 @@ class VideoGenerator(Generator):
 
         if len(first_frame_images) != len(video_descriptions):
             ERROR(
-                f"first frame images or video description counts are incorrect, len(first_frame_images)={len(first_frame_images)}, len(video_descriptions)={len(video_descriptions)}"
-            )
-            raise InvalidParameter(
-                "messages",
-                "first frame images or video description counts are incorrect",
-            )
+                f"first frame images or video description counts are incorrect, len(first_frame_images)={len(first_frame_images)}, len(video_descriptions)={len(video_descriptions)}")
+            raise InvalidParameter("messages", "first frame images or video description counts are incorrect")
 
         if len(first_frame_images) > MAX_STORY_BOARD_NUMBER:
             ERROR("first frame image count exceed limit")
             raise InvalidParameter("messages", "first frame image count exceed limit")
 
-        # user request can include videos field containing a list of Videos they don't want regenerated
         # handle case when some assets are already provided, only partial set of assets needs to be generated
         generated_videos: List[Video] = []
         if self.mode == Mode.REGENERATION:
-            dict_content = extract_and_parse_dict_from_message(
-                self.request.messages[-1].content
-            )
+            dict_content = extract_dict_from_message(self.request.messages[-1].content)
             videos_json = dict_content.get("videos", [])
             for v in videos_json:
                 video = Video.model_validate(v)
-                if video.content_generation_task_id:
+                if video.video_gen_task_id:
                     generated_videos.append(video)
 
         INFO(f"generated_videos: {generated_videos}")
 
-        # send first stream
+        merged = _merge_video_descriptions_and_first_frame_images(video_descriptions, first_frame_images)
+
+        # Return first
         yield ArkChatCompletionChunk(
             id=get_reqid(),
             choices=[
@@ -145,94 +142,54 @@ class VideoGenerator(Generator):
             ],
             created=int(time.time()),
             model=get_resource_id(),
-            object="chat.completion.chunk",
+            object="chat.completion.chunk"
         )
 
-        content_generation_info = zip_video_descriptions_and_first_frame_images(
-            video_descriptions, first_frame_images
-        )
-
-        # create a list of content generation tasks, skips videos in generated_video_indexes
         tasks = []
         generated_video_indexes = set([v.index for v in generated_videos])
-        for index, video_descriptions, first_frame_image in content_generation_info:
+        for index, video_descriptions, first_frame_image in merged:
             if index not in generated_video_indexes:
-                tasks.append(
-                    asyncio.create_task(
-                        self._create_content_generation_task(
-                            index,
-                            video_descriptions.description,
-                            first_frame_image.images[0],
-                        )
-                    )
-                )
+                tasks.append(asyncio.create_task(
+                    self._process_image(index, video_descriptions.description, first_frame_image.images[0])))
 
-        pending_tasks = set(tasks)
-        content = {
-            "videos": [role_image.model_dump() for role_image in generated_videos],
-        }
+        pending = set(tasks)
+        content = {"videos": [role_image.model_dump() for role_image in generated_videos], }
 
-        # accumulates the task results
-        while pending_tasks:
-            done, pending_tasks = await asyncio.wait(
-                pending_tasks, return_when=asyncio.FIRST_COMPLETED
-            )
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
 
             for task in done:
-                video_index, content_generation_task_id = task.result()
-                content["videos"].append(
-                    Video(
-                        index=video_index,
-                        content_generation_task_id=content_generation_task_id,
-                    ).model_dump()
-                )
+                video_index, video_gen_task_id = task.result()
+                content["videos"].append(Video(
+                    index=video_index,
+                    video_gen_task_id=video_gen_task_id
+                ).model_dump())
 
-        yield ArkChatCompletionChunk(
-            id=get_reqid(),
-            choices=[
-                Choice(
-                    index=0,
-                    delta=ChoiceDelta(content=f"{json.dumps(content)}\n\n"),
-                )
-            ],
-            created=int(time.time()),
-            model=get_resource_id(),
-            object="chat.completion.chunk",
-        )
+        yield _get_tool_resp(0, json.dumps(content))
+        yield _get_tool_resp(1)
 
-        yield ArkChatCompletionChunk(
-            id=get_reqid(),
-            choices=[
-                Choice(
-                    index=0,
-                    finish_reason="stop",
-                    delta=ChoiceDelta(content=""),
-                )
-            ],
-            created=int(time.time()),
-            model=get_resource_id(),
-            object="chat.completion.chunk",
-        )
-
-    async def _create_content_generation_task(
-        self, index: int, prompt: str, image_url: str
-    ) -> Tuple[int, str]:
+    async def _process_image(self, index: int, prompt: str, image_url: str) -> Tuple[int, str]:
         try:
-            # Create Content Generation Task
-            resp = self.ark_runtime_client.content_generation.tasks.create(
+            # Create Video Gen Task
+            resp = self.content_generation_client.content_generation.tasks.create(
                 model=CGT_ENDPOINT_ID,
                 content=[
-                    {"type": "text", "text": prompt},
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_url},
+                        "image_url": {
+                            "url": image_url,
+                        },
                     },
                 ],
             )
+            video_gen_task_id = resp.id
 
-            content_generation_task_id = resp.id
         except Exception as e:
-            ERROR(f"fail to generate video, err: {e}")
+            ERROR(f"fail to generate video, err: {e}, prompt: {prompt}, image_url: {image_url}, model: {CGT_ENDPOINT_ID}")
             return index, "failed to generate video"
 
-        return index, content_generation_task_id
+        return index, video_gen_task_id
