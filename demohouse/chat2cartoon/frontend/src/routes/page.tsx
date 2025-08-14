@@ -16,7 +16,6 @@ import VideoGenerator from '@/module/VideoGenerator';
 
 import './index.css';
 import { GetVideoGenTask } from '@/services/getVideoGenTask';
-import { CommonDownloadTosUrls } from '@/services/commonDownloadTosUrls';
 
 const Index = () => {
   const storeKey =
@@ -57,7 +56,6 @@ const Index = () => {
             storeUniqueId={storeKey}
             api={
               {
-                CommonDownloadTosUrls: CommonDownloadTosUrls,
                 GetVideoGenTask: GetVideoGenTask,
               }
             }

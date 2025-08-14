@@ -422,7 +422,5 @@ export const responseForTextRiskReplaceSet = new Set(
 );
 
 export const globalEnv = {
-  ARK_ACCESS_KEY: process.env.VOLC_ACCESSKEY,
-  ARK_SECRET_KEY: process.env.VOLC_SECRETKEY,
-  ARK_API_KEY: process.env.ARK_API_KEY,
+  ARK_API_KEY: process.env.ARK_API_KEY || process.env.API_KEY,
 };
