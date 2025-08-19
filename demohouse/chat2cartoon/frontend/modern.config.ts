@@ -31,8 +31,7 @@ export default defineConfig({
   },
   source: {
     globalVars: {
-      'process.env.VOLC_ACCESSKEY': process.env.VOLC_ACCESSKEY,
-      'process.env.VOLC_SECRETKEY': process.env.VOLC_SECRETKEY,
+      'process.env.API_KEY': process.env.API_KEY,
       'process.env.ARK_API_KEY': process.env.ARK_API_KEY,
       'process.env.TTS_ACCESS_TOKEN': process.env.TTS_ACCESS_TOKEN,
       'process.env.TTS_APP_ID': process.env.TTS_APP_ID,

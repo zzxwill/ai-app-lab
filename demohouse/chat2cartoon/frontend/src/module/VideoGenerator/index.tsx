@@ -22,7 +22,6 @@ import { IOptions } from '@/utils/request';
 
 interface ApiRequest {
   GetVideoGenTask?: (params: { Id: string }, opts?: IOptions) => Promise<any>;
-  CommonDownloadTosUrls?: (params: { TosObjects: any[] }) => Promise<any>;
 }
 interface Props {
   assistantInfo: Assistant;
