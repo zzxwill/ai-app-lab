@@ -1,3 +1,5 @@
+from typing import Any, Optional
+
 from arkitect.core.component.context.context import Context
 from arkitect.core.component.context.hooks import (
     PostLLMCallHook,
@@ -5,7 +7,7 @@ from arkitect.core.component.context.hooks import (
     PreLLMCallHook,
     PreToolCallHook,
 )
-from arkitect.core.component.context.model import ContextInterruption
+from arkitect.core.component.context.model import ContextInterruption, State
 from arkitect.types.llm.model import ArkChatParameters, ArkMessage
 
 # --- 工具注册与 ChatCompletionTool ---
@@ -88,7 +90,7 @@ context = Context(
 )
 
 
-async def init_context_main():
+async def init_context_main() -> None:
     await context.init()
 
 
@@ -184,25 +186,27 @@ class PostToolCallHook:
 
 
 class MyPreLLMHook(PreLLMCallHook):
-    async def pre_llm_call(self, state):
+    async def pre_llm_call(self, state: State) -> State:
         print("LLM调用前", state)
         return state
 
 
 class MyPostLLMHook(PostLLMCallHook):
-    async def post_llm_call(self, state):
+    async def post_llm_call(self, state: State) -> State:
         print("LLM调用后", state)
         return state
 
 
 class MyPreToolHook(PreToolCallHook):
-    async def pre_tool_call(self, name, args, state):
+    async def pre_tool_call(self, name: str, args: str, state: State) -> State:
         print("工具前", name, args)
         return state
 
 
 class MyPostToolHook(PostToolCallHook):
-    async def post_tool_call(self, name, args, resp, exc, state):
+    async def post_tool_call(
+        self, name: str, args: str, resp: Any, exc: Optional[Exception], state: State
+    ) -> State:
         print("工具后", name, args, resp, exc)
         return state
 
@@ -235,7 +239,7 @@ class ContextInterruption(Exception):
 
 # 用法：流式输出循环中检测和处理ContextInterruption
 # 假设completion是context.completions.create(...)的异步生成器
-async def interruption_example():
+async def interruption_example() -> None:
     await context.init()
     completion = await context.completions.create(
         [{"role": "user", "content": "hello"}], stream=True
@@ -266,7 +270,7 @@ async def interruption_example():
 
 
 # 非流式（stream=False）
-async def non_stream_example():
+async def non_stream_example() -> None:
     await context.init()
     reply = await context.completions.create(
         [{"role": "user", "content": "你好"}], stream=False
@@ -276,10 +280,10 @@ async def non_stream_example():
 
 
 # 流式（stream=True）
-async def stream_example():
+async def stream_example() -> None:
     await context.init()
     async for chunk in await context.completions.create(
-        [{"role": "user", "content": "你好"}], stream=True
+        [{"role": "user", "content": "hello"}], stream=True
     ):
         if hasattr(chunk, "choices"):
             print(chunk.choices[0].delta.content, end="")
@@ -308,7 +312,7 @@ class CompletionUsage(BaseModel):
 """
 
 
-async def usage_example():
+async def usage_example() -> None:
     await context.init()
     reply = await context.completions.create(
         [{"role": "user", "content": "你好"}], stream=False
