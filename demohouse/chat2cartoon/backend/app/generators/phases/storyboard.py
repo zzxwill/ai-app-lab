@@ -7,25 +7,18 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License. 
+# limitations under the License.
 
-import time
 from typing import AsyncIterable
 
-from volcenginesdkarkruntime.types.chat.chat_completion_chunk import Choice, ChoiceDelta
+from arkitect.core.component.llm.model import ArkChatRequest, ArkChatResponse, ArkMessage
 
 from app.clients.llm import LLMClient
 from app.constants import LLM_ENDPOINT_ID, MAX_STORY_BOARD_NUMBER
 from app.generators.base import Generator
 from app.generators.phase import Phase, PhaseFinder
+from app.generators.phases.common import get_correction_completion_chunk
 from app.mode import Mode
-from arkitect.core.component.llm.model import (
-    ArkChatCompletionChunk,
-    ArkChatRequest,
-    ArkChatResponse,
-    ArkMessage,
-)
-from arkitect.utils.context import get_reqid, get_resource_id
 
 STORY_BOARD_SYSTEM_PROMPT = ArkMessage(
     role="system",
@@ -36,7 +29,7 @@ STORY_BOARD_SYSTEM_PROMPT = ArkMessage(
 - 如果同一个分镜中出现了多个相同角色，需要分别输出他们的名字，不要合并。
 - 台词需要生成中文版和英文版。
 - 每个分镜必须都有台词。
-- 不需要为返回结果添加phase=xxx的前缀
+- 返回结果必须增加"phase=StoryBoard"前缀。
 
 # 相关限制
 - 不要出现过于复杂或恐怖的情节。
@@ -64,6 +57,7 @@ STORY_BOARD_SYSTEM_PROMPT = ArkMessage(
 角色3：小鸟，五彩羽毛，尖嘴圆眼。服饰：白色小马甲（大树枝上）
 
 ## 输出按照以下格式回答（角色、画面、中文台词、英文台词分别各占一行）：
+phase=StoryBoard
 分镜1：
 角色：小熊贝贝
 画面：森林里，一只毛茸茸、耳朵小小的、眼睛黑亮黑亮的小熊戴着蓝色小帽子，穿着带有黄色星星图案的棕色背心，欢快地走向一棵大树。
@@ -81,7 +75,7 @@ STORY_BOARD_SYSTEM_PROMPT = ArkMessage(
 画面：大树枝上，一只五彩斑斓羽毛、尖嘴巴、圆眼睛且身穿白色马甲的小鸟看到小狐狸的表情。
 中文台词：“小狐狸又想做坏事，我要帮帮小熊。”
 英文台词："I'm going to help this little bear."
-""",
+"""
 )
 
 
@@ -91,40 +85,28 @@ class StoryBoardGenerator(Generator):
     mode: Mode
     phase_finder: PhaseFinder
 
-    def __init__(self, request: ArkChatRequest, mode: Mode = Mode.CONFIRMATION):
+    def __init__(self, request: ArkChatRequest, mode: Mode.NORMAL):
         super().__init__(request, mode)
-        self.llm_client = LLMClient(LLM_ENDPOINT_ID)
+
+        chat_endpoint_id = LLM_ENDPOINT_ID
+        if request.metadata:
+            chat_endpoint_id = request.metadata.get("chat_endpoint_id", LLM_ENDPOINT_ID)
+
+        self.llm_client = LLMClient(chat_endpoint_id)
         self.request = request
         self.mode = mode
         self.phase_finder = PhaseFinder(request)
 
     async def generate(self) -> AsyncIterable[ArkChatResponse]:
-        # extract script from the user request
-        _, script_message = self.phase_finder.get_phase_message(Phase.SCRIPT)
+        if self.mode == Mode.CORRECTION:
+            yield get_correction_completion_chunk(self.request.messages[-1], Phase.STORY_BOARD)
+        else:
+            _, script_message = self.phase_finder.get_phase_message(Phase.SCRIPT)
+            messages = [
+                STORY_BOARD_SYSTEM_PROMPT,
+                script_message,
+                self.request.messages[-1],
+            ]
 
-        # send first stream
-        yield ArkChatCompletionChunk(
-            id=get_reqid(),
-            choices=[
-                Choice(
-                    index=0,
-                    delta=ChoiceDelta(
-                        content=f"phase={Phase.STORY_BOARD.value}\n\n",
-                    ),
-                ),
-            ],
-            created=int(time.time()),
-            model=get_resource_id(),
-            object="chat.completion.chunk",
-        )
-
-        # attach system prompt at the start of the LLM request
-        # attach script as a context for the storyboard generation
-        messages = [
-            STORY_BOARD_SYSTEM_PROMPT,
-            script_message,
-            self.request.messages[-1],
-        ]
-
-        async for resp in self.llm_client.chat_generation(messages):
-            yield resp
+            async for resp in self.llm_client.chat_generation(messages):
+                yield resp

@@ -7,25 +7,18 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License. 
+# limitations under the License.
 
-import time
 from typing import AsyncIterable
 
-from volcenginesdkarkruntime.types.chat.chat_completion_chunk import Choice, ChoiceDelta
+from arkitect.core.component.llm.model import ArkChatRequest, ArkChatResponse, ArkMessage
 
 from app.clients.llm import LLMClient
 from app.constants import LLM_ENDPOINT_ID
 from app.generators.base import Generator
 from app.generators.phase import Phase, PhaseFinder
+from app.generators.phases.common import get_correction_completion_chunk
 from app.mode import Mode
-from arkitect.core.component.llm.model import (
-    ArkChatCompletionChunk,
-    ArkChatRequest,
-    ArkChatResponse,
-    ArkMessage,
-)
-from arkitect.utils.context import get_reqid, get_resource_id
 
 ROLE_DESCRIPTION_SYSTEM_PROMPT = ArkMessage(
     role="system",
@@ -47,6 +40,7 @@ ROLE_DESCRIPTION_SYSTEM_PROMPT = ArkMessage(
 - 不需要为返回结果添加phase=xxx的前缀
 
 # 输出按照以下格式回答（角色数量介于1-4之间，如果只有1个角色，只需要写角色1即可。）：
+phase=RoleDescription
 角色1：
 角色：小熊
 角色描述：小熊，圆头圆脑，小黑鼻。服饰：蓝色小帽与黄色星图棕背心（森林）
@@ -56,7 +50,7 @@ ROLE_DESCRIPTION_SYSTEM_PROMPT = ArkMessage(
 角色3：
 角色：小鸟
 角色描述：小鸟，小巧玲珑，圆眼珠。服饰：白色小肚兜（树枝上）
-""",
+"""
 )
 
 
@@ -66,42 +60,30 @@ class RoleDescriptionGenerator(Generator):
     mode: Mode
     phase_finder: PhaseFinder
 
-    def __init__(self, request: ArkChatRequest, mode: Mode = Mode.CONFIRMATION):
+    def __init__(self, request: ArkChatRequest, mode: Mode.NORMAL):
         super().__init__(request, mode)
-        self.llm_client = LLMClient(LLM_ENDPOINT_ID)
+
+        chat_endpoint_id = LLM_ENDPOINT_ID
+        if request.metadata:
+            chat_endpoint_id = request.metadata.get("chat_endpoint_id", LLM_ENDPOINT_ID)
+
+        self.llm_client = LLMClient(chat_endpoint_id)
         self.request = request
         self.mode = mode
         self.phase_finder = PhaseFinder(request)
 
     async def generate(self) -> AsyncIterable[ArkChatResponse]:
-        # extract script and storyboard text from the user request
-        _, script_message = self.phase_finder.get_phase_message(Phase.SCRIPT)
-        _, storyboard_message = self.phase_finder.get_phase_message(Phase.STORY_BOARD)
+        if self.mode == Mode.CORRECTION:
+            yield get_correction_completion_chunk(self.request.messages[-1], Phase.ROLE_DESCRIPTION)
+        else:
+            _, script_message = self.phase_finder.get_phase_message(Phase.SCRIPT)
+            _, storyboard_message = self.phase_finder.get_phase_message(Phase.STORY_BOARD)
+            messages = [
+                ROLE_DESCRIPTION_SYSTEM_PROMPT,
+                script_message,
+                storyboard_message,
+                self.request.messages[-1],
+            ]
 
-        # send first stream
-        yield ArkChatCompletionChunk(
-            id=get_reqid(),
-            choices=[
-                Choice(
-                    index=0,
-                    delta=ChoiceDelta(
-                        content=f"phase={Phase.ROLE_DESCRIPTION.value}\n\n",
-                    ),
-                ),
-            ],
-            created=int(time.time()),
-            model=get_resource_id(),
-            object="chat.completion.chunk",
-        )
-
-        # attach system prompt at the start of the LLM request
-        # attach script and storyboard as the context for the role description generation
-        messages = [
-            ROLE_DESCRIPTION_SYSTEM_PROMPT,
-            script_message,
-            storyboard_message,
-            self.request.messages[-1],
-        ]
-
-        async for resp in self.llm_client.chat_generation(messages):
-            yield resp
+            async for resp in self.llm_client.chat_generation(messages):
+                yield resp

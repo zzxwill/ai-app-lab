@@ -7,33 +7,23 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License. 
+# limitations under the License.
 
-from typing import AsyncIterable, List
+from typing import List, AsyncIterable
 
 from arkitect.core.component.llm import BaseChatLanguageModel
-from arkitect.core.component.llm.model import (
-    ArkChatCompletionChunk,
-    ArkChatParameters,
-    ArkMessage,
-)
+from  arkitect.core.component.llm.model import ArkChatResponse,ArkChatParameters,ArkMessage
 from arkitect.utils import AsyncTimedIterable
 
 
 class LLMClient:
-    """Large Language Model Client"""
-
     endpoint_id: str
 
     def __init__(self, endpoint_id: str):
         self.endpoint_id = endpoint_id
 
-    def chat_generation(
-        self, messages: List[ArkMessage]
-    ) -> AsyncIterable[ArkChatCompletionChunk]:
-        messages = list(
-            filter(lambda m: m.role in ["system", "assistant", "user"], messages)
-        )
+    def chat_generation(self, messages: List[ArkMessage]) -> AsyncIterable[ArkChatResponse]:
+        messages = list(filter(lambda m: m.role in ["system", "assistant", "user"], messages))
 
         llm_chat = BaseChatLanguageModel(
             endpoint_id=self.endpoint_id,
@@ -41,4 +31,8 @@ class LLMClient:
             parameters=ArkChatParameters(temperature=1.0, top_p=0.7),
         )
 
-        return AsyncTimedIterable(llm_chat.astream(), timeout=5)
+        return AsyncTimedIterable(llm_chat.astream(extra_body={
+            "thinking": {
+                "type": "disabled"
+            }
+        }), timeout=5)

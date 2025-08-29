@@ -7,31 +7,23 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License. 
+# limitations under the License.
 
-from typing import AsyncIterable, List
+from typing import List, AsyncIterable
 
 from arkitect.core.component.llm import BaseChatLanguageModel
-from arkitect.core.component.llm.model import ArkChatParameters, ArkChatResponse, ArkMessage
+from arkitect.core.component.llm.model import ArkChatParameters, ArkMessage, ArkChatResponse
 from arkitect.utils import AsyncTimedIterable
 
 
 class VLMClient:
-    """
-    Visual Language Model client for the chat2cartoon demo, mainly used in the FilmInteraction phase.
-    """
-
     endpoint_id: str
 
     def __init__(self, endpoint_id: str):
         self.endpoint_id = endpoint_id
 
-    def chat_generation(
-        self, messages: List[ArkMessage]
-    ) -> AsyncIterable[ArkChatResponse]:
-        messages = list(
-            filter(lambda m: m.role in ["system", "assistant", "user"], messages)
-        )
+    def chat_generation(self, messages: List[ArkMessage]) -> AsyncIterable[ArkChatResponse]:
+        messages = list(filter(lambda m: m.role in ["system", "assistant", "user"], messages))
 
         vlm_chat = BaseChatLanguageModel(
             endpoint_id=self.endpoint_id,

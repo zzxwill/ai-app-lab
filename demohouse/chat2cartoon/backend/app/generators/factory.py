@@ -7,7 +7,9 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License. 
+# limitations under the License.
+
+from arkitect.core.component.llm import ArkChatRequest
 
 from app.generators.base import Generator
 from app.generators.phase import Phase
@@ -22,7 +24,6 @@ from app.generators.phases.tone import ToneGenerator
 from app.generators.phases.video import VideoGenerator
 from app.generators.phases.video_description import VideoDescriptionGenerator
 from app.mode import Mode
-from arkitect.core.component.llm.model import ArkChatRequest
 
 generator_map = {
     # The first 3 steps are InitiationGenerator because the users may keep asking the llm to regenerate
@@ -52,6 +53,6 @@ class GeneratorFactory:
     def get_generator(self, request: ArkChatRequest, mode: Mode) -> Generator:
         g_class = generator_map.get(self.phase)
         if not g_class:
-            raise ValueError(f"Phase {self.phase} not supported")
+            raise ValueError(f'Phase {self.phase} not supported')
 
         return g_class(request, mode)
