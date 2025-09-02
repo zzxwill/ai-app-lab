@@ -283,6 +283,7 @@ class _AsyncCompletions:
             tool_resp = await self._ctx.tool_pool.execute_tool(  # type: ignore
                 tool_name=tool_name, parameters=json.loads(parameters)
             )
+            tool_resp = convert_to_chat_completion_content_part_param(tool_resp)
         except Exception as e:
             tool_exception = e
         return tool_resp, tool_exception
@@ -317,6 +318,7 @@ class _AsyncCompletions:
                     tool_arguments=updated_arguments,
                 )
                 resp, exceptions = await self.execute_tool(tool_name, updated_arguments)
+
                 yield ToolChunk(
                     tool_call_id=tool_call.get("id", ""),
                     tool_name=tool_name,
