@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from langchain.prompts.chat import BaseChatPromptTemplate
 from langchain.schema.output_parser import BaseTransformOutputParser
 from volcenginesdkarkruntime import Ark, AsyncArk
-from volcenginesdkarkruntime._streaming import AsyncStream
+from volcenginesdkarkruntime._streaming import AsyncStream, Stream
 from volcenginesdkarkruntime.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -119,7 +119,7 @@ class BaseChatLanguageModel(BaseLanguageModel):
         extra_headers: Optional[Dict[str, str]] = {},
         extra_query: Optional[Dict[str, Any]] = None,
         extra_body: Optional[Dict[str, Any]] = None,
-    ) -> Union[ChatCompletion, AsyncStream[ChatCompletionChunk]]:
+    ) -> Union[ChatCompletion, Stream[ChatCompletionChunk]]:
         sync_client = Ark()
 
         extra_headers = get_extra_headers(extra_headers)

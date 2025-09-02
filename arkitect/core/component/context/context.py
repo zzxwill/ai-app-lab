@@ -43,6 +43,9 @@ from arkitect.core.component.context.hooks import (
 )
 from arkitect.core.component.tool.mcp_client import MCPClient
 from arkitect.core.component.tool.tool_pool import ToolPool, build_tool_pool
+from arkitect.core.component.tool.utils import (
+    convert_to_chat_completion_content_part_param,
+)
 from arkitect.telemetry.trace import task
 from arkitect.types.llm.model import (
     ArkChatParameters,
@@ -86,6 +89,7 @@ class _AsyncCompletions:
                     tool_resp = await self._ctx.tool_pool.execute_tool(
                         tool_name=tool_name, parameters=json.loads(parameters)
                     )
+                    tool_resp = convert_to_chat_completion_content_part_param(tool_resp)
                 except Exception as e:
                     tool_exception = e
 

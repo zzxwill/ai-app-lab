@@ -90,6 +90,8 @@ class ToolPool:
         available_tool_names = [t.name for t in await self.session.list_tools()]
         if tool_name in available_tool_names:
             result = await self.session.call_tool(tool_name, parameters)
+            if isinstance(result, tuple):
+                result = result[0]
             return CallToolResult(content=list(result), isError=False)
         else:
             for client in self.mcp_clients.values():
