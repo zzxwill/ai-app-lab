@@ -36,6 +36,7 @@ from arkitect.types.llm.model import (
     ChatCompletionMessageToolCallParam,
     Function,
 )
+from arkitect.core.utils.converter import to_dict
 
 
 def _convert_message_role_to_ark_role(  # type: ignore
@@ -73,7 +74,7 @@ def _convert_ark_messages(chat_messages: List[ArkMessage]) -> List[BaseMessage]:
                     HumanMessage(
                         content=(
                             [
-                                part.model_dump(exclude_none=True, exclude_unset=True)
+                                to_dict(part, exclude_none=True, exclude_unset=True)
                                 for part in message.content
                             ]
                             if message.content
@@ -219,7 +220,7 @@ def convert_response_message(
                 ChatCompletionMessageToolCallParam(
                     id=tool_call.id,
                     type=tool_call.type,
-                    function=Function(**tool_call.function.__dict__),
+                    function=Function(**to_dict(tool_call.function)),
                 )
                 for tool_call in response_message.tool_calls
             ]
