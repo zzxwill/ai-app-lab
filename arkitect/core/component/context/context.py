@@ -14,6 +14,7 @@
 
 import copy
 import json
+from functools import cached_property
 from typing import (
     Any,
     AsyncIterable,
@@ -398,7 +399,7 @@ class Context:
     ) -> Optional[ChatCompletionMessageParam]:
         return self.state.messages[-1]
 
-    @property
+    @cached_property
     def completions(self) -> _AsyncCompletions:
         return _AsyncCompletions(self)
 
